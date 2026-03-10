@@ -32,8 +32,13 @@ const menuItems = ref([
     command: () => router.push('/farms')
   },
   {
+    label: 'Satellite',
+    icon: 'pi pi-chart-scatter',
+    command: () => router.push('/satellite')
+  },
+  {
     label: 'Health',
-    icon: 'pi pi-map',
+    icon: 'pi pi-heart',
     command: () => router.push('/health')
   },
   {

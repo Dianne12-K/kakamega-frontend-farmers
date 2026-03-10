@@ -24,9 +24,9 @@ const routes = [
                 component: () => import('@/views/Farms.vue')
             },
             {
-                path: '/health',
-                name: 'Health',
-                component: () => import('@/views/Health.vue')
+                path: 'farms/add',       // ← must be BEFORE farms/:id
+                name: 'AddFarm',
+                component: () => import('@/views/AddFarm.vue')
             },
             {
                 path: 'farms/:id',
@@ -34,9 +34,14 @@ const routes = [
                 component: () => import('@/views/FarmDetail.vue')
             },
             {
-                path: 'farms/add',
-                name: 'AddFarm',
-                component: () => import('@/views/AddFarm.vue')
+                path: 'satellite',       // ← new
+                name: 'Satellite',
+                component: () => import('@/views/Satellite.vue')
+            },
+            {
+                path: 'health',
+                name: 'Health',
+                component: () => import('@/views/Health.vue')
             },
             {
                 path: 'alerts',

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useFarmsStore } from '@/stores/farms'
-import { useAlertsStore } from '@/stores/alerts'
+// import { useAlertsStore } from '@/stores/alerts'
 
 import Card from 'primevue/card'
 import Button from 'primevue/button'
@@ -12,7 +12,7 @@ import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 
 const farmsStore = useFarmsStore()
-const alertsStore = useAlertsStore()
+// const alertsStore = useAlertsStore()
 
 const dateRanges = [
   { label: 'Last 7 Days', value: 7 },
@@ -205,7 +205,7 @@ const createCustomReport = () => {
 
 onMounted(() => {
   farmsStore.fetchFarms()
-  alertsStore.fetchAlerts()
+  // alertsStore.fetchAlerts()
 })
 </script>
 

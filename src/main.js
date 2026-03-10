@@ -10,6 +10,7 @@ import Aura from '@primeuix/themes/aura'
 // Optional: PrimeIcons if you use any <i class="pi pi-...">
 import 'primeicons/primeicons.css'
 import ToastService from 'primevue/toastservice'
+import Tooltip from 'primevue/tooltip'
 
 
 // ✅ Import Pinia
@@ -31,6 +32,6 @@ app.use(PrimeVue, {
     }
 })
 app.use(ToastService)
-
+app.directive('tooltip', Tooltip)
 
 app.mount('#app')

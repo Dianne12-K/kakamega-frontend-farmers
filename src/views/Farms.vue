@@ -1,241 +1,549 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useFarmsStore } from '@/stores/farms'
+import { useFarmsStore } from '@/stores/farms.js'
+import { useMapStyles }  from '@/composables/useMapStyles.js'
 
-import Card from 'primevue/card'
-import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
-import Dropdown from 'primevue/dropdown'
-import DataView from 'primevue/dataview'
+import DataTable  from 'primevue/datatable'
+import Column     from 'primevue/column'
+import Button     from 'primevue/button'
+import InputText  from 'primevue/inputtext'
+import Select     from 'primevue/select'
+import Tag        from 'primevue/tag'
+import IconField  from 'primevue/iconfield'
+import InputIcon  from 'primevue/inputicon'
 
-const router = useRouter()
+const router     = useRouter()
 const farmsStore = useFarmsStore()
+const { getHealthSeverity } = useMapStyles()
 
-const searchQuery = ref('')
-const filterStatus = ref('all')
-const sortBy = ref('health')
+// ── Filters ───────────────────────────────────────────────────
+const globalFilter   = ref('')
+const selectedCrop   = ref(null)
+const selectedStatus = ref(null)
+const selectedHealth = ref(null)
+
+const cropOptions = [
+  { label: 'All Crops',  value: null },
+  { label: 'Maize',      value: 'maize' },
+  { label: 'Sugarcane',  value: 'sugarcane' },
+  { label: 'Tea',        value: 'tea' },
+  { label: 'Beans',      value: 'beans' },
+  { label: 'Sorghum',    value: 'sorghum' },
+  { label: 'Cassava',    value: 'cassava' },
+  { label: 'Vegetables', value: 'vegetables' },
+  { label: 'Sunflower',  value: 'sunflower' },
+]
 
 const statusOptions = [
-  { label: 'All Farms', value: 'all' },
-  { label: 'Healthy', value: 'healthy' },
-  { label: 'Watch', value: 'watch' },
-  { label: 'Critical', value: 'critical' }
+  { label: 'All Statuses', value: null },
+  { label: 'Active',       value: 'active' },
+  { label: 'Fallow',       value: 'fallow' },
+  { label: 'Harvested',    value: 'harvested' },
 ]
 
-const sortOptions = [
-  { label: 'Health Score', value: 'health' },
-  { label: 'Name', value: 'name' },
-  { label: 'Area', value: 'area' },
-  { label: 'Crop Type', value: 'crop' }
+const healthOptions = [
+  { label: 'All Health',      value: null },
+  { label: 'Excellent (80+)', value: 'excellent' },
+  { label: 'Good (60-79)',    value: 'good' },
+  { label: 'Fair (40-59)',    value: 'fair' },
+  { label: 'Poor (<40)',      value: 'poor' },
 ]
 
+// ── Filtered list ─────────────────────────────────────────────
 const filteredFarms = computed(() => {
-  let farms = [...farmsStore.farms]
+  let list = farmsStore.farms
 
-  // Search filter
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    farms = farms.filter(farm =>
-        farm.name.toLowerCase().includes(query) ||
-        farm.crop_type?.toLowerCase().includes(query)
-    )
-  }
+  if (selectedCrop.value)
+    list = list.filter(f => f.crop_type === selectedCrop.value)
 
-  // Status filter
-  if (filterStatus.value !== 'all') {
-    farms = farms.filter(farm =>
-        farm.current_health?.status === filterStatus.value
-    )
-  }
+  if (selectedStatus.value)
+    list = list.filter(f => f.status === selectedStatus.value)
 
-  // Sort
-  farms.sort((a, b) => {
-    switch (sortBy.value) {
-      case 'health':
-        return (b.current_health?.score || 0) - (a.current_health?.score || 0)
-      case 'name':
-        return a.name.localeCompare(b.name)
-      case 'area':
-        return (b.area_ha || 0) - (a.area_ha || 0)
-      case 'crop':
-        return (a.crop_type || '').localeCompare(b.crop_type || '')
-      default:
-        return 0
-    }
-  })
+  if (selectedHealth.value)
+    list = list.filter(f => {
+      const h = f.current_health?.score ?? 0
+      if (selectedHealth.value === 'excellent') return h >= 80
+      if (selectedHealth.value === 'good')      return h >= 60 && h < 80
+      if (selectedHealth.value === 'fair')      return h >= 40 && h < 60
+      if (selectedHealth.value === 'poor')      return h < 40
+    })
 
-  return farms
+  // global search applied via DataTable :filters prop
+  return list
 })
 
-const getHealthColor = (status) => {
-  const colors = {
-    healthy: 'text-green-600 bg-green-50',
-    watch: 'text-yellow-600 bg-yellow-50',
-    critical: 'text-red-600 bg-red-50'
-  }
-  return colors[status] || 'text-gray-600 bg-gray-50'
-}
+// ── Summary stats ─────────────────────────────────────────────
+const stats = computed(() => {
+  const farms  = farmsStore.farms
+  const scores = farms.map(f => f.current_health?.score ?? 0)
+  const avg    = scores.length
+      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+      : 0
+  const area   = farms.reduce((s, f) => s + (parseFloat(f.area_ha) || 0), 0)
 
-const getMoistureColor = (status) => {
-  const colors = {
-    wet: 'text-blue-600 bg-blue-50',
-    adequate: 'text-green-600 bg-green-50',
-    low: 'text-orange-600 bg-orange-50',
-    dry: 'text-red-600 bg-red-50'
-  }
-  return colors[status] || 'text-gray-600 bg-gray-50'
-}
-
-onMounted(() => {
-  if (farmsStore.farms.length === 0) {
-    farmsStore.fetchFarms()
+  return {
+    total:    farms.length,
+    active:   farms.filter(f => f.status === 'active').length,
+    avg,
+    area:     area.toFixed(1),
+    critical: farms.filter(f => (f.current_health?.score ?? 0) < 40).length,
   }
 })
+
+// ── Helpers ───────────────────────────────────────────────────
+function healthLabel(score) {
+  if (score >= 80) return 'Excellent'
+  if (score >= 60) return 'Good'
+  if (score >= 40) return 'Fair'
+  return 'Poor'
+}
+
+function statusSeverity(s) {
+  if (s === 'active')    return 'success'
+  if (s === 'fallow')    return 'warn'
+  if (s === 'harvested') return 'info'
+  return 'secondary'
+}
+
+function moistureClass(status) {
+  if (status === 'optimal') return 'text-blue-600'
+  if (status === 'low')     return 'text-amber-500'
+  if (status === 'high')    return 'text-red-500'
+  return 'text-gray-400'
+}
+
+function resetFilters() {
+  globalFilter.value   = ''
+  selectedCrop.value   = null
+  selectedStatus.value = null
+  selectedHealth.value = null
+}
+
+onMounted(() => farmsStore.fetchFarms())
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
+  <div class="farms-page">
+
+    <!-- Page Header -->
+    <div class="page-header">
       <div>
-        <h1 class="text-3xl font-bold text-gray-900">All Farms</h1>
-        <p class="text-gray-600 mt-1">{{ filteredFarms.length }} farms found</p>
+        <h1 class="page-title">Farm Registry</h1>
+        <p class="page-subtitle">
+          Monitor and manage all registered farms across Kakamega County
+        </p>
       </div>
+      <div class="flex gap-2">
+        <Button
+            icon="pi pi-map"
+            label="Map View"
+            severity="secondary"
+            outlined
+            @click="router.push('/')"
+        />
+        <Button
+            icon="pi pi-plus"
+            label="Register Farm"
+            @click="router.push('/farms/add')"
+        />
+      </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-icon bg-blue-50 text-blue-600">
+          <i class="pi pi-th-large"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ stats.total }}</div>
+          <div class="stat-label">Total Farms</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon bg-green-50 text-green-600">
+          <i class="pi pi-check-circle"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ stats.active }}</div>
+          <div class="stat-label">Active</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon bg-indigo-50 text-indigo-600">
+          <i class="pi pi-chart-line"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ stats.avg }}<span class="stat-unit">/100</span></div>
+          <div class="stat-label">Avg. Health</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon bg-amber-50 text-amber-600">
+          <i class="pi pi-map-marker"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ stats.area }}<span class="stat-unit"> ha</span></div>
+          <div class="stat-label">Total Area</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon bg-red-50 text-red-600">
+          <i class="pi pi-exclamation-triangle"></i>
+        </div>
+        <div>
+          <div class="stat-value">{{ stats.critical }}</div>
+          <div class="stat-label">Critical</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <IconField class="flex-1 min-w-[200px]">
+        <InputIcon class="pi pi-search" />
+        <InputText
+            v-model="globalFilter"
+            placeholder="Search farms, crop types..."
+            class="w-full"
+        />
+      </IconField>
+
+      <Select
+          v-model="selectedCrop"
+          :options="cropOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Crop Type"
+          class="w-44"
+      />
+      <Select
+          v-model="selectedStatus"
+          :options="statusOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Status"
+          class="w-40"
+      />
+      <Select
+          v-model="selectedHealth"
+          :options="healthOptions"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="Health"
+          class="w-44"
+      />
       <Button
-          label="Add New Farm"
-          icon="pi pi-plus"
-          @click="router.push('/farms/add')"
+          icon="pi pi-filter-slash"
+          label="Clear"
+          severity="secondary"
+          outlined
+          size="small"
+          @click="resetFilters"
       />
     </div>
 
-    <!-- Filters -->
-    <Card>
-      <template #content>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="flex-1">
-            <span class="p-input-icon-left w-full">
-              <i class="pi pi-search" />
-              <InputText
-                  v-model="searchQuery"
-                  placeholder="Search farms..."
-                  class="w-full"
-              />
-            </span>
-          </div>
-
-          <Dropdown
-              v-model="filterStatus"
-              :options="statusOptions"
-              optionLabel="label"
-              optionValue="value"
-              placeholder="Filter by status"
-              class="w-full"
-          />
-
-          <Dropdown
-              v-model="sortBy"
-              :options="sortOptions"
-              optionLabel="label"
-              optionValue="value"
-              placeholder="Sort by"
-              class="w-full"
-          />
-        </div>
-      </template>
-    </Card>
-
-    <!-- Farms Grid -->
-    <div v-if="farmsStore.loading" class="text-center py-12">
-      <i class="pi pi-spin pi-spinner text-4xl text-primary"></i>
-      <p class="mt-4 text-gray-600">Loading farms...</p>
-    </div>
-
-    <div v-else-if="filteredFarms.length === 0" class="text-center py-12">
-      <i class="pi pi-inbox text-6xl text-gray-300"></i>
-      <p class="mt-4 text-gray-600">No farms found</p>
-    </div>
-
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <Card
-          v-for="farm in filteredFarms"
-          :key="farm.id"
-          class="hover:shadow-lg transition-shadow cursor-pointer"
-          @click="router.push(`/farms/${farm.id}`)"
+    <!-- DataTable -->
+    <div class="table-wrapper">
+      <DataTable
+          :value="filteredFarms"
+          :loading="farmsStore.loading"
+          :globalFilterFields="['name', 'crop_type', 'status', 'irrigation', 'soil_type']"
+          :filters="{ global: { value: globalFilter, matchMode: 'contains' } }"
+          paginator
+          :rows="15"
+          :rowsPerPageOptions="[10, 15, 25, 50]"
+          sortMode="multiple"
+          removableSort
+          stripedRows
+          rowHover
+          scrollable
+          scrollHeight="flex"
+          size="small"
+          paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown CurrentPageReport"
+          currentPageReportTemplate="Showing {first}–{last} of {totalRecords} farms"
+          class="farms-table"
+          @row-click="router.push(`/farms/${$event.data.id}`)"
       >
-        <template #header>
-          <div
-              class="h-32 flex items-center justify-center"
-              :class="getHealthColor(farm.current_health?.status)"
-          >
-            <div class="text-center">
-              <div class="text-4xl font-bold">
-                {{ farm.current_health?.score || 0 }}
-              </div>
-              <div class="text-sm font-semibold uppercase mt-1">
-                {{ farm.current_health?.status || 'Unknown' }}
-              </div>
-            </div>
+
+        <template #empty>
+          <div class="py-16 text-center">
+            <i class="pi pi-inbox text-5xl text-gray-200 block mb-4"></i>
+            <p class="text-gray-500 font-medium">No farms match your filters</p>
+            <Button label="Clear Filters" text size="small" class="mt-3" @click="resetFilters" />
           </div>
         </template>
 
-        <template #title>
-          <div class="flex items-start justify-between">
-            <div>
-              <h3 class="text-lg font-bold text-gray-900">{{ farm.name }}</h3>
-              <p class="text-sm text-gray-600">{{ farm.crop_type || 'Unknown crop' }}</p>
-            </div>
-            <i class="pi pi-map-marker text-gray-400"></i>
+        <template #loading>
+          <div class="py-16 text-center">
+            <i class="pi pi-spin pi-spinner text-3xl text-primary block mb-4"></i>
+            <p class="text-gray-400">Loading farm data...</p>
           </div>
         </template>
 
-        <template #content>
-          <div class="space-y-3">
-            <!-- Farm Details -->
-            <div class="flex items-center justify-between text-sm">
-              <span class="text-gray-600">Area:</span>
-              <span class="font-semibold">{{ farm.area_ha?.toFixed(1) }} ha</span>
-            </div>
+        <!-- ID -->
+        <Column field="id" header="ID" sortable style="width:64px">
+          <template #body="{ data }">
+            <span class="font-mono text-xs text-gray-400">#{{ data.id }}</span>
+          </template>
+        </Column>
 
-            <div class="flex items-center justify-between text-sm">
-              <span class="text-gray-600">Planted:</span>
-              <span class="font-semibold">
-                {{ farm.planting_date ? new Date(farm.planting_date).toLocaleDateString() : 'N/A' }}
+        <!-- Farm Name -->
+        <Column field="name" header="Farm Name" sortable style="min-width:200px">
+          <template #body="{ data }">
+            <p class="font-semibold text-gray-900 text-sm leading-tight">{{ data.name }}</p>
+            <p class="text-xs text-gray-400 mt-0.5 font-mono">
+              {{ data.latitude?.toFixed(4) }}, {{ data.longitude?.toFixed(4) }}
+            </p>
+          </template>
+        </Column>
+
+        <!-- Crop -->
+        <Column field="crop_type" header="Crop" sortable style="width:130px">
+          <template #body="{ data }">
+            <span class="crop-pill">{{ data.crop_type ?? '—' }}</span>
+          </template>
+        </Column>
+
+        <!-- Area -->
+        <Column field="area_ha" header="Area (ha)" sortable style="width:110px">
+          <template #body="{ data }">
+            <span class="text-sm font-medium text-gray-700">
+              {{ parseFloat(data.area_ha || 0).toFixed(2) }}
+            </span>
+          </template>
+        </Column>
+
+        <!-- Health Score -->
+        <Column
+            field="current_health.score"
+            header="Health Score"
+            sortable
+            style="width:180px"
+        >
+          <template #body="{ data }">
+            <div class="flex items-center gap-2">
+              <div class="health-track">
+                <div
+                    class="health-fill"
+                    :class="`health-fill--${getHealthSeverity(data.current_health?.score ?? 0)}`"
+                    :style="{ width: `${data.current_health?.score ?? 0}%` }"
+                />
+              </div>
+              <Tag
+                  :value="healthLabel(data.current_health?.score ?? 0)"
+                  :severity="getHealthSeverity(data.current_health?.score ?? 0)"
+                  size="small"
+                  class="shrink-0"
+              />
+            </div>
+          </template>
+        </Column>
+
+        <!-- NDVI -->
+        <Column field="current_health.ndvi" header="NDVI" sortable style="width:85px">
+          <template #body="{ data }">
+            <span class="font-mono text-sm text-gray-600">
+              {{ data.current_health?.ndvi?.toFixed(3) ?? '—' }}
+            </span>
+          </template>
+        </Column>
+
+        <!-- Moisture -->
+        <Column field="current_moisture.percent" header="Moisture" sortable style="width:120px">
+          <template #body="{ data }">
+            <span v-if="data.current_moisture" class="text-sm">
+              <span class="font-medium text-gray-700">
+                {{ parseFloat(data.current_moisture.percent).toFixed(1) }}%
               </span>
-            </div>
+              <span class="text-xs ml-1" :class="moistureClass(data.current_moisture.status)">
+                {{ data.current_moisture.status }}
+              </span>
+            </span>
+            <span v-else class="text-gray-300 text-sm">—</span>
+          </template>
+        </Column>
 
-            <!-- Moisture Status -->
-            <div class="pt-2 border-t border-gray-200">
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-gray-600">Soil Moisture:</span>
-                <span
-                    class="px-3 py-1 rounded-full text-xs font-semibold"
-                    :class="getMoistureColor(farm.current_moisture?.status)"
-                >
-                  {{ farm.current_moisture?.status || 'N/A' }}
-                </span>
-              </div>
-            </div>
+        <!-- Irrigation -->
+        <Column field="irrigation" header="Irrigation" sortable style="width:120px">
+          <template #body="{ data }">
+            <span class="text-sm text-gray-600 capitalize">
+              {{ data.irrigation?.replace('_', ' ') ?? '—' }}
+            </span>
+          </template>
+        </Column>
 
-            <!-- Action Buttons -->
-            <div class="pt-3 flex gap-2">
+        <!-- Soil -->
+        <Column field="soil_type" header="Soil Type" sortable style="width:120px">
+          <template #body="{ data }">
+            <span class="text-sm text-gray-600 capitalize">
+              {{ data.soil_type?.replace('_', ' ') ?? '—' }}
+            </span>
+          </template>
+        </Column>
+
+        <!-- Status -->
+        <Column field="status" header="Status" sortable style="width:110px">
+          <template #body="{ data }">
+            <Tag
+                :value="data.status"
+                :severity="statusSeverity(data.status)"
+                size="small"
+            />
+          </template>
+        </Column>
+
+        <!-- Planted -->
+        <Column field="planting_date" header="Planted" sortable style="width:110px">
+          <template #body="{ data }">
+            <span class="text-xs text-gray-500">{{ data.planting_date ?? '—' }}</span>
+          </template>
+        </Column>
+
+        <!-- Actions -->
+        <Column header="" style="width:90px" frozen alignFrozen="right">
+          <template #body="{ data }">
+            <div class="flex gap-1">
               <Button
-                  label="View Details"
-                  text
-                  size="small"
-                  class="flex-1"
-                  @click.stop="router.push(`/farms/${farm.id}`)"
+                  icon="pi pi-eye"
+                  rounded text size="small"
+                  severity="info"
+                  v-tooltip.top="'View Details'"
+                  @click.stop="router.push(`/farms/${data.id}`)"
               />
               <Button
-                  icon="pi pi-refresh"
-                  text
-                  size="small"
-                  @click.stop="farmsStore.refreshFarmData(farm.id)"
+                  icon="pi pi-map-marker"
+                  rounded text size="small"
+                  severity="secondary"
+                  v-tooltip.top="'View on Map'"
+                  @click.stop="router.push('/')"
               />
             </div>
-          </div>
-        </template>
-      </Card>
+          </template>
+        </Column>
+
+      </DataTable>
     </div>
   </div>
 </template>
+
+<style scoped>
+.farms-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  height: calc(100vh - 140px);
+}
+
+/* Header */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.02em;
+}
+.page-subtitle { font-size: 0.875rem; color: #6b7280; margin-top: 3px; }
+
+/* Stats */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+@media (max-width: 1024px) { .stats-row { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 640px)  { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+
+.stat-card {
+  background: white;
+  border: 1px solid #f3f4f6;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.stat-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.05rem; flex-shrink: 0;
+}
+.stat-value { font-size: 1.5rem; font-weight: 800; color: #111827; line-height: 1; }
+.stat-unit  { font-size: 0.875rem; font-weight: 500; color: #9ca3af; }
+.stat-label { font-size: 0.7rem; color: #9ca3af; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Filter bar */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  background: white;
+  border: 1px solid #f3f4f6;
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* Table wrapper */
+.table-wrapper {
+  flex: 1;
+  background: white;
+  border: 1px solid #f3f4f6;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  min-height: 0;
+}
+
+/* Crop pill */
+.crop-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  background: #f0f9ff;
+  color: #0369a1;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  border: 1px solid #bae6fd;
+}
+
+/* Health bar */
+.health-track {
+  flex: 1;
+  height: 5px;
+  background: #f3f4f6;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.health-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.health-fill--success { background: #22c55e; }
+.health-fill--info    { background: #3b82f6; }
+.health-fill--warn    { background: #f59e0b; }
+.health-fill--danger  { background: #ef4444; }
+
+/* Row click cursor */
+:deep(.farms-table .p-datatable-tbody > tr) {
+  cursor: pointer;
+}
+:deep(.farms-table .p-datatable-tbody > tr:hover td) {
+  background: #f8faff !important;
+}
+</style>

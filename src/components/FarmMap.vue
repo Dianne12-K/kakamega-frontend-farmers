@@ -1,704 +1,529 @@
-<template>
-  <div class="farm-map-page">
-    <!-- Top Controls -->
-    <div class="map-controls p-4 bg-white shadow-md">
-      <div class="flex flex-wrap gap-4 items-center">
-        <!-- Search -->
-        <div class="flex-1 min-w-[200px]">
-          <span class="p-input-icon-left w-full">
-            <i class="pi pi-search" />
-            <InputText
-                v-model="searchQuery"
-                placeholder="Search farms, owners, locations..."
-                class="w-full"
-            />
-          </span>
-        </div>
-
-        <!-- Region Filter -->
-        <Select
-            v-model="selectedRegion"
-            :options="regions"
-            optionLabel="label"
-            optionValue="value"
-            placeholder="All Regions"
-            class="w-48"
-        />
-
-        <!-- Health Filter -->
-        <Select
-            v-model="selectedHealth"
-            :options="healthFilters"
-            optionLabel="label"
-            optionValue="value"
-            placeholder="All Farms"
-            class="w-48"
-        />
-
-        <!-- Reset Button -->
-        <Button
-            icon="pi pi-filter-slash"
-            label="Reset"
-            severity="secondary"
-            outlined
-            @click="resetFilters"
-        />
-
-        <!-- Add Farm Button -->
-        <Button
-            icon="pi pi-plus"
-            label="Add Farm"
-            @click="router.push('/farms/add')"
-        />
-      </div>
-
-      <!-- Stats Bar -->
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
-        <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
-          <div class="text-xs text-gray-600 mb-1">Total Farms</div>
-          <div class="text-2xl font-bold text-gray-800">{{ mapStats.total }}</div>
-        </div>
-        <div class="bg-green-50 p-3 rounded-lg border border-green-200">
-          <div class="text-xs text-green-700 mb-1">Excellent</div>
-          <div class="text-2xl font-bold text-green-800">{{ mapStats.excellent }}</div>
-        </div>
-        <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
-          <div class="text-xs text-blue-700 mb-1">Good</div>
-          <div class="text-2xl font-bold text-blue-800">{{ mapStats.good }}</div>
-        </div>
-        <div class="bg-orange-50 p-3 rounded-lg border border-orange-200">
-          <div class="text-xs text-orange-700 mb-1">Fair</div>
-          <div class="text-2xl font-bold text-orange-800">{{ mapStats.fair }}</div>
-        </div>
-        <div class="bg-red-50 p-3 rounded-lg border border-red-200">
-          <div class="text-xs text-red-700 mb-1">Poor</div>
-          <div class="text-2xl font-bold text-red-800">{{ mapStats.poor }}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Map Container -->
-    <div class="map-wrapper">
-      <div ref="mapContainer" class="map-container"></div>
-
-      <!-- Popup -->
-      <div ref="popupContainer" class="ol-popup" v-show="popupContent">
-        <div class="popup-content bg-white rounded-lg shadow-xl p-4">
-          <button
-              @click="closePopup"
-              class="absolute top-2 right-2 text-gray-400 hover:text-gray-600 z-10"
-          >
-            <i class="pi pi-times"></i>
-          </button>
-
-          <div v-if="popupContent">
-            <h3 class="font-bold text-lg text-gray-900 mb-3">{{ popupContent.name }}</h3>
-
-            <div class="space-y-2 text-sm mb-3">
-              <div class="flex items-center justify-between">
-                <span class="text-gray-600">Owner:</span>
-                <span class="font-semibold">{{ popupContent.owner }}</span>
-              </div>
-
-              <div class="flex items-center justify-between">
-                <span class="text-gray-600">Crop:</span>
-                <span class="font-semibold capitalize">{{ popupContent.crop_type || popupContent.cropType }}</span>
-              </div>
-
-              <div class="flex items-center justify-between">
-                <span class="text-gray-600">Area:</span>
-                <span class="font-semibold">{{ (popupContent.area_ha || popupContent.size)?.toFixed(1) }} ha</span>
-              </div>
-
-              <div class="flex items-center justify-between">
-                <span class="text-gray-600">Health:</span>
-                <span
-                    class="px-2 py-1 rounded-full text-xs font-semibold"
-                    :class="getHealthClass(popupContent.current_health?.score || popupContent.health)"
-                >
-                  {{ popupContent.current_health?.score || popupContent.health || 0 }}/100
-                </span>
-              </div>
-            </div>
-
-            <button
-                @click="viewFarmDetails(popupContent.id)"
-                class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold"
-            >
-              View Details
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Legend -->
-      <div class="map-legend">
-        <Card>
-          <template #content>
-            <h3 class="text-sm font-bold text-gray-800 mb-3">Farm Health</h3>
-            <div class="space-y-2">
-              <div class="flex items-center gap-2">
-                <div class="w-4 h-4 rounded" style="background: rgba(34, 197, 94, 0.6);"></div>
-                <span class="text-xs text-gray-700">Excellent (80-100)</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <div class="w-4 h-4 rounded" style="background: rgba(59, 130, 246, 0.6);"></div>
-                <span class="text-xs text-gray-700">Good (60-79)</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <div class="w-4 h-4 rounded" style="background: rgba(245, 158, 11, 0.6);"></div>
-                <span class="text-xs text-gray-700">Fair (40-59)</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <div class="w-4 h-4 rounded" style="background: rgba(239, 68, 68, 0.6);"></div>
-                <span class="text-xs text-gray-700">Poor (0-39)</span>
-              </div>
-            </div>
-          </template>
-        </Card>
-      </div>
-
-      <!-- Farm List Toggle -->
-      <div class="farm-list-toggle">
-        <Button
-            icon="pi pi-list"
-            label="Farm List"
-            severity="info"
-            @click="showSidebar = true"
-        />
-      </div>
-    </div>
-
-    <!-- Sidebar with Farm List -->
-    <Drawer v-model:visible="showSidebar" position="right" class="w-full md:w-[400px]">
-      <template #header>
-        <h2 class="text-xl font-bold text-gray-800">
-          {{ selectedFarm ? selectedFarm.name : 'All Farms' }}
-        </h2>
-      </template>
-
-      <!-- Selected Farm Details -->
-      <div v-if="selectedFarm" class="mb-4">
-        <Card>
-          <template #content>
-            <div class="space-y-3">
-              <div>
-                <h3 class="text-lg font-bold text-gray-800">{{ selectedFarm.name }}</h3>
-                <p class="text-gray-600">{{ selectedFarm.owner }}</p>
-              </div>
-
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <span class="text-xs text-gray-600">Health Score</span>
-                  <Tag
-                      :value="`${selectedFarm.current_health?.score || selectedFarm.health || 0}%`"
-                      :severity="getHealthSeverity(selectedFarm.current_health?.score || selectedFarm.health)"
-                      class="mt-1"
-                  />
-                </div>
-                <div>
-                  <span class="text-xs text-gray-600">Crop Type</span>
-                  <p class="text-sm font-medium text-gray-800">{{ selectedFarm.crop_type || selectedFarm.cropType || 'N/A' }}</p>
-                </div>
-                <div>
-                  <span class="text-xs text-gray-600">Size</span>
-                  <p class="text-sm font-medium text-gray-800">{{ (selectedFarm.area_ha || selectedFarm.size)?.toFixed(1) }} ha</p>
-                </div>
-                <div>
-                  <span class="text-xs text-gray-600">Location</span>
-                  <p class="text-sm font-medium text-gray-800">{{ selectedFarm.subCounty || 'N/A' }}</p>
-                </div>
-              </div>
-
-              <div class="flex gap-2 pt-2">
-                <Button
-                    label="View Details"
-                    icon="pi pi-eye"
-                    class="flex-1"
-                    @click="viewFarmDetails(selectedFarm.id)"
-                />
-                <Button
-                    label="Center"
-                    icon="pi pi-map-marker"
-                    severity="secondary"
-                    outlined
-                    @click="centerOnFarm(selectedFarm)"
-                />
-              </div>
-            </div>
-          </template>
-        </Card>
-
-        <Button
-            label="Clear Selection"
-            icon="pi pi-times"
-            severity="secondary"
-            text
-            class="w-full mt-3"
-            @click="selectedFarm = null"
-        />
-      </div>
-
-      <!-- Farm List -->
-      <div v-else class="space-y-3">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="font-semibold text-gray-800">
-            {{ filteredFarms.length }} Farm{{ filteredFarms.length !== 1 ? 's' : '' }}
-          </h3>
-        </div>
-
-        <div
-            v-for="farm in filteredFarms"
-            :key="farm.id"
-            class="farm-list-item p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition"
-            @click="selectFarm(farm)"
-        >
-          <div class="flex items-start gap-3">
-            <div
-                class="w-3 h-3 rounded-full mt-1 flex-shrink-0"
-                :style="{ background: getMarkerColor(farm.current_health?.score || farm.health) }"
-            ></div>
-            <div class="flex-1 min-w-0">
-              <h4 class="font-semibold text-gray-800 truncate">{{ farm.name }}</h4>
-              <p class="text-sm text-gray-600 truncate">{{ farm.owner }}</p>
-              <div class="flex items-center gap-2 mt-1">
-                <Tag
-                    :value="`${farm.current_health?.score || farm.health || 0}%`"
-                    :severity="getHealthSeverity(farm.current_health?.score || farm.health)"
-                    size="small"
-                />
-                <span class="text-xs text-gray-500">{{ farm.subCounty }}</span>
-              </div>
-            </div>
-            <Button
-                icon="pi pi-map-marker"
-                text
-                rounded
-                size="small"
-                @click.stop="centerOnFarm(farm)"
-            />
-          </div>
-        </div>
-
-        <div v-if="filteredFarms.length === 0" class="text-center py-8">
-          <i class="pi pi-inbox text-4xl text-gray-400 mb-3"></i>
-          <p class="text-gray-600">No farms found</p>
-          <Button
-              label="Reset Filters"
-              icon="pi pi-filter-slash"
-              text
-              class="mt-3"
-              @click="resetFilters"
-          />
-        </div>
-      </div>
-    </Drawer>
-  </div>
-</template>
-
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { useFarmsStore } from '@/stores/farms.js'
-import { useAlertsStore } from '@/stores/alerts.js'
+import { useFarmsStore }   from '@/stores/farms.js'
+import { useAlertsStore }  from '@/stores/alerts.js'
+import { useSpatialStore } from '@/stores/spatial.js'
+import { useMapStyles }    from '@/composables/useMapStyles.js'
+import { useMapBasemaps }  from '@/composables/useMapBasemaps.js'
 
-import Map from 'ol/Map'
-import View from 'ol/View'
-import TileLayer from 'ol/layer/Tile'
-import VectorLayer from 'ol/layer/Vector'
+// OpenLayers core
+import Map          from 'ol/Map'
+import View         from 'ol/View'
+import VectorLayer  from 'ol/layer/Vector'
 import VectorSource from 'ol/source/Vector'
-import OSM from 'ol/source/OSM'
-import Feature from 'ol/Feature'
-import Point from 'ol/geom/Point'
-import Polygon from 'ol/geom/Polygon'
-import { fromLonLat } from 'ol/proj'
-import { Style, Fill, Stroke, Circle as CircleStyle, Text as TextStyle } from 'ol/style'
-import Overlay from 'ol/Overlay'
+import GeoJSON      from 'ol/format/GeoJSON'
+import Feature      from 'ol/Feature'
+import Point        from 'ol/geom/Point'
+import Overlay      from 'ol/Overlay'
+import { fromLonLat }             from 'ol/proj'
 import { defaults as defaultControls } from 'ol/control'
-
+import { Style, Fill, Stroke, Circle as CircleStyle, Text as TextStyle } from 'ol/style'
 import 'ol/ol.css'
 
-import Card from 'primevue/card'
-import Button from 'primevue/button'
-import Select from 'primevue/select'
+// PrimeVue
+import Button    from 'primevue/button'
+import Select    from 'primevue/select'
 import InputText from 'primevue/inputtext'
-import Drawer from 'primevue/drawer'
-import Tag from 'primevue/tag'
 
-const router = useRouter()
-const farmsStore = useFarmsStore()
-const alertsStore = useAlertsStore()
+// Sub-components
+import BasemapSwitcher from '@/composables/map/BasemapSwitcher.vue'
+import MapPopup        from '@/composables/map/MapPopup.vue'
+import MapLegend       from '@/composables/map/MapLegend.vue'
+import MapSidebar      from '@/composables/map/MapSidebar.vue'
 
-// Map refs
-const mapContainer = ref(null)
+const router       = useRouter()
+const farmsStore   = useFarmsStore()
+const alertsStore  = useAlertsStore()
+const spatialStore = useSpatialStore()
+const { getFarmStyle, getPointStyle } = useMapStyles()
+
+// ── Map refs ──────────────────────────────────────────────────
+const mapContainer   = ref(null)
 const popupContainer = ref(null)
-const map = ref(null)
-const vectorSource = ref(null)
-const overlay = ref(null)
-const popupContent = ref(null)
-const hoveredFarm = ref(null)
+const mapInstance    = ref(null)
+const overlayObj     = ref(null)
 
-// Filters
-const searchQuery = ref('')
+// Vector sources — created once, never reassigned
+const farmSource      = new VectorSource()
+const subcountySource = new VectorSource()
+const marketSource    = new VectorSource()
+
+// State
+const popupFarm      = ref(null)
+const hoveredFarm    = ref(null)
+const selectedFarm   = ref(null)
+const showSidebar    = ref(false)
+const activeBasemap  = ref('osm')
+const layersVisible  = ref({ subcounties: true, markets: true })
+let   basemaps       = null
+
+// ── Filters ───────────────────────────────────────────────────
+const searchQuery    = ref('')
 const selectedRegion = ref('all')
 const selectedHealth = ref('all')
-const showSidebar = ref(false)
-const selectedFarm = ref(null)
 
-// Regions & Health Options
 const regions = [
   { label: 'All Regions', value: 'all' },
-  { label: 'Malava', value: 'malava' },
-  { label: 'Lugari', value: 'lugari' },
-  { label: 'Likuyani', value: 'likuyani' },
-  { label: 'Mumias', value: 'mumias' },
-  { label: 'Matungu', value: 'matungu' }
+  { label: 'Lugari',      value: 'Lugari' },
+  { label: 'Likuyani',    value: 'Likuyani' },
+  { label: 'Malava',      value: 'Malava' },
+  { label: 'Lurambi',     value: 'Lurambi' },
+  { label: 'Navakholo',   value: 'Navakholo' },
+  { label: 'Mumias East', value: 'Mumias East' },
+  { label: 'Mumias West', value: 'Mumias West' },
+  { label: 'Matungu',     value: 'Matungu' },
+  { label: 'Butere',      value: 'Butere' },
+  { label: 'Khwisero',    value: 'Khwisero' },
+  { label: 'Shinyalu',    value: 'Shinyalu' },
+  { label: 'Ikolomani',   value: 'Ikolomani' },
 ]
 
 const healthFilters = [
-  { label: 'All Farms', value: 'all' },
+  { label: 'All Farms',       value: 'all' },
   { label: 'Excellent (80+)', value: 'excellent' },
-  { label: 'Good (60-79)', value: 'good' },
-  { label: 'Fair (40-59)', value: 'fair' },
-  { label: 'Poor (<40)', value: 'poor' }
+  { label: 'Good (60–79)',    value: 'good' },
+  { label: 'Fair (40–59)',    value: 'fair' },
+  { label: 'Poor (<40)',      value: 'poor' },
 ]
 
-// Kakamega center
-const CENTER = [34.7519, 0.2827]
-
-// Filtered Farms
+// ── Computed ──────────────────────────────────────────────────
 const filteredFarms = computed(() => {
-  let farms = farmsStore.farms
+  let list = farmsStore.farms
 
-  if (selectedRegion.value !== 'all') {
-    farms = farms.filter(f => f.subCounty === selectedRegion.value)
-  }
-
-  if (selectedHealth.value !== 'all') {
-    farms = farms.filter(f => {
-      const health = f.current_health?.score || f.health || 0
-      if (selectedHealth.value === 'excellent') return health >= 80
-      if (selectedHealth.value === 'good') return health >= 60 && health < 80
-      if (selectedHealth.value === 'fair') return health >= 40 && health < 60
-      if (selectedHealth.value === 'poor') return health < 40
-      return true
+  if (selectedRegion.value !== 'all')
+    list = list.filter(f => {
+      const ward = f.ward_id  // fallback filter by subcounty name if available
+      return f.subcounty_name === selectedRegion.value ||
+          f.subCounty      === selectedRegion.value
     })
-  }
+
+  if (selectedHealth.value !== 'all')
+    list = list.filter(f => {
+      const h = f.current_health?.score ?? 0
+      if (selectedHealth.value === 'excellent') return h >= 80
+      if (selectedHealth.value === 'good')      return h >= 60 && h < 80
+      if (selectedHealth.value === 'fair')      return h >= 40 && h < 60
+      if (selectedHealth.value === 'poor')      return h < 40
+    })
 
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
-    farms = farms.filter(f =>
-        f.name.toLowerCase().includes(q) ||
-        f.owner.toLowerCase().includes(q) ||
-        f.location?.toLowerCase().includes(q)
+    list = list.filter(f =>
+        f.name?.toLowerCase().includes(q) ||
+        f.owner?.toLowerCase().includes(q) ||
+        f.crop_type?.toLowerCase().includes(q)
     )
   }
 
-  return farms
+  return list
 })
 
-// Map Stats
 const mapStats = computed(() => {
-  const farms = filteredFarms.value
+  const f = filteredFarms.value
+  const score = x => x.current_health?.score ?? 0
   return {
-    total: farms.length,
-    excellent: farms.filter(f => (f.current_health?.score || f.health || 0) >= 80).length,
-    good: farms.filter(f => {
-      const h = f.current_health?.score || f.health || 0
-      return h >= 60 && h < 80
-    }).length,
-    fair: farms.filter(f => {
-      const h = f.current_health?.score || f.health || 0
-      return h >= 40 && h < 60
-    }).length,
-    poor: farms.filter(f => (f.current_health?.score || f.health || 0) < 40).length
+    total:     f.length,
+    excellent: f.filter(x => score(x) >= 80).length,
+    good:      f.filter(x => score(x) >= 60 && score(x) < 80).length,
+    fair:      f.filter(x => score(x) >= 40 && score(x) < 60).length,
+    poor:      f.filter(x => score(x) < 40).length,
   }
 })
 
-// Style functions
-const getFarmStyle = (farm, isSelected = false, isHovered = false) => {
-  const healthScore = farm.current_health?.score || farm.health || 50
+// ── Styles ────────────────────────────────────────────────────
 
-  let fillColor, strokeColor
-  if (healthScore >= 80) {
-    fillColor = 'rgba(34, 197, 94, 0.4)'
-    strokeColor = 'rgba(34, 197, 94, 1)'
-  } else if (healthScore >= 60) {
-    fillColor = 'rgba(59, 130, 246, 0.4)'
-    strokeColor = 'rgba(59, 130, 246, 1)'
-  } else if (healthScore >= 40) {
-    fillColor = 'rgba(245, 158, 11, 0.4)'
-    strokeColor = 'rgba(245, 158, 11, 1)'
-  } else {
-    fillColor = 'rgba(239, 68, 68, 0.4)'
-    strokeColor = 'rgba(239, 68, 68, 1)'
-  }
-
-  if (isSelected) {
-    fillColor = 'rgba(99, 102, 241, 0.5)'
-    strokeColor = 'rgba(99, 102, 241, 1)'
-  } else if (isHovered) {
-    fillColor = fillColor.replace('0.4', '0.6')
-  }
-
-  return new Style({
-    fill: new Fill({ color: fillColor }),
-    stroke: new Stroke({
-      color: strokeColor,
-      width: isSelected ? 3 : isHovered ? 2.5 : 2
-    }),
-    text: new TextStyle({
-      text: farm.name,
-      font: 'bold 12px sans-serif',
-      fill: new Fill({ color: '#1f2937' }),
-      stroke: new Stroke({ color: '#fff', width: 3 }),
-      offsetY: 0
-    })
+// Subcounty boundary style
+const subcountyStyle = new Style({
+  fill:   new Fill({ color: 'rgba(99, 102, 241, 0.05)' }),
+  stroke: new Stroke({ color: 'rgba(99, 102, 241, 0.6)', width: 1.5, lineDash: [6, 4] }),
+  text:   new TextStyle({
+    font:   'bold 11px sans-serif',
+    fill:   new Fill({ color: 'rgba(99,102,241,0.9)' }),
+    stroke: new Stroke({ color: '#fff', width: 3 }),
   })
+})
+
+function subcountyStyleFn(feature) {
+  const s = subcountyStyle.clone()
+  s.getText().setText(feature.get('name') || '')
+  return s
 }
 
-const getPointStyle = (farm, isSelected = false) => {
-  const healthScore = farm.current_health?.score || farm.health || 50
-
-  let fillColor
-  if (healthScore >= 80) fillColor = 'rgba(34, 197, 94, 1)'
-  else if (healthScore >= 60) fillColor = 'rgba(59, 130, 246, 1)'
-  else if (healthScore >= 40) fillColor = 'rgba(245, 158, 11, 1)'
-  else fillColor = 'rgba(239, 68, 68, 1)'
-
+// Market pin style
+function marketStyleFn(feature) {
   return new Style({
     image: new CircleStyle({
-      radius: isSelected ? 10 : 7,
-      fill: new Fill({ color: fillColor }),
-      stroke: new Stroke({ color: '#fff', width: 2 })
+      radius: 6,
+      fill:   new Fill({ color: 'rgba(234, 179, 8, 0.9)' }),
+      stroke: new Stroke({ color: '#fff', width: 2 }),
     }),
     text: new TextStyle({
-      text: farm.name,
-      font: 'bold 11px sans-serif',
-      fill: new Fill({ color: '#1f2937' }),
-      stroke: new Stroke({ color: '#fff', width: 3 }),
-      offsetY: -15
+      text:    feature.get('name') || '',
+      font:    '10px sans-serif',
+      fill:    new Fill({ color: '#713f12' }),
+      stroke:  new Stroke({ color: '#fff', width: 2 }),
+      offsetY: -14,
     })
   })
 }
 
-const initMap = () => {
-  vectorSource.value = new VectorSource()
+// Farm point/polygon style
+function farmStyleFn(feature) {
+  const farm = feature.get('farm')
+  if (!farm) return null
+  const sel = selectedFarm.value?.id === farm.id
+  const hov = hoveredFarm.value?.id  === farm.id
+  const type = feature.getGeometry().getType()
+  return type === 'Polygon'
+      ? getFarmStyle(farm, { selected: sel, hovered: hov })
+      : getPointStyle(farm, { selected: sel })
+}
 
-  overlay.value = new Overlay({
-    element: popupContainer.value,
-    autoPan: { animation: { duration: 250 } },
+// ── Map init ──────────────────────────────────────────────────
+function initMap() {
+  overlayObj.value = new Overlay({
+    element:     popupContainer.value,
+    autoPan:     { animation: { duration: 250 } },
     positioning: 'bottom-center',
-    stopEvent: false,
-    offset: [0, -10]
+    stopEvent:   false,
+    offset:      [0, -10],
   })
 
-  map.value = new Map({
-    target: mapContainer.value,
-    layers: [
-      new TileLayer({ source: new OSM() }),
-      new VectorLayer({
-        source: vectorSource.value,
-        style: (feature) => {
-          const farm = feature.get('farm')
-          const isSelected = selectedFarm.value?.id === farm.id
-          const isHovered = hoveredFarm.value?.id === farm.id
-
-          if (feature.getGeometry().getType() === 'Polygon') {
-            return getFarmStyle(farm, isSelected, isHovered)
-          } else {
-            return getPointStyle(farm, isSelected)
-          }
-        }
-      })
-    ],
-    overlays: [overlay.value],
-    view: new View({
-      center: fromLonLat(CENTER),
-      zoom: 11
-    }),
-    controls: defaultControls({ attribution: false, zoom: true })
+  const subcountyLayer = new VectorLayer({
+    source:  subcountySource,
+    style:   subcountyStyleFn,
+    zIndex:  1,
   })
 
-  map.value.on('click', (evt) => {
-    const feature = map.value.forEachFeatureAtPixel(evt.pixel, (f) => f)
-    if (feature) {
-      const farm = feature.get('farm')
+  const marketLayer = new VectorLayer({
+    source:  marketSource,
+    style:   marketStyleFn,
+    zIndex:  2,
+  })
+
+  const farmLayer = new VectorLayer({
+    source:  farmSource,
+    style:   farmStyleFn,
+    zIndex:  3,
+  })
+
+  mapInstance.value = new Map({
+    target:   mapContainer.value,
+    layers:   [subcountyLayer, marketLayer, farmLayer],
+    overlays: [overlayObj.value],
+    view:     new View({ center: fromLonLat([34.7519, 0.2827]), zoom: 11 }),
+    controls: defaultControls({ attribution: false }),
+  })
+
+  basemaps = useMapBasemaps(mapInstance.value, activeBasemap.value)
+
+  // Click — farms only
+  mapInstance.value.on('click', evt => {
+    const feat = mapInstance.value.forEachFeatureAtPixel(evt.pixel, f => f,
+        { layerFilter: l => l === farmLayer }
+    )
+    if (feat) {
+      const farm = feat.get('farm')
       selectedFarm.value = farm
-      showPopup(evt.coordinate, farm)
+      popupFarm.value    = farm
+      overlayObj.value.setPosition(evt.coordinate)
     } else {
       closePopup()
     }
   })
 
-  map.value.on('pointermove', (evt) => {
-    const feature = map.value.forEachFeatureAtPixel(evt.pixel, (f) => f)
-    if (feature) {
-      hoveredFarm.value = feature.get('farm')
-      map.value.getTargetElement().style.cursor = 'pointer'
-    } else {
-      hoveredFarm.value = null
-      map.value.getTargetElement().style.cursor = ''
-    }
-    vectorSource.value.changed()
+  // Hover
+  mapInstance.value.on('pointermove', evt => {
+    const feat = mapInstance.value.forEachFeatureAtPixel(evt.pixel, f => f,
+        { layerFilter: l => l === farmLayer }
+    )
+    hoveredFarm.value = feat ? feat.get('farm') : null
+    mapInstance.value.getTargetElement().style.cursor = feat ? 'pointer' : ''
+    farmSource.changed()
   })
-
-  loadFarms()
 }
 
-const loadFarms = () => {
-  if (!vectorSource.value) return
-
-  vectorSource.value.clear()
+// ── Load farm features from farmsStore ───────────────────────
+function loadFarmFeatures() {
+  if (!farmSource) return
+  farmSource.clear()
 
   filteredFarms.value.forEach(farm => {
-    let feature
-
-    // Check for polygon data
-    if (farm.boundary_geojson && farm.boundary_geojson.coordinates) {
-      const coordinates = farm.boundary_geojson.coordinates[0].map(coord =>
-          fromLonLat([coord[0], coord[1]])
-      )
-      feature = new Feature({
-        geometry: new Polygon([coordinates]),
-        farm: farm
-      })
-    } else if (farm.latitude && farm.longitude) {
-      feature = new Feature({
-        geometry: new Point(fromLonLat([farm.longitude, farm.latitude])),
-        farm: farm
-      })
-    } else {
-      return
-    }
-
-    vectorSource.value.addFeature(feature)
+    if (!farm.latitude || !farm.longitude) return
+    const feat = new Feature({
+      geometry: new Point(fromLonLat([parseFloat(farm.longitude), parseFloat(farm.latitude)])),
+      farm,
+    })
+    farmSource.addFeature(feat)
   })
 
-  if (vectorSource.value.getFeatures().length > 0) {
-    const extent = vectorSource.value.getExtent()
-    map.value.getView().fit(extent, { padding: [50, 50, 50, 50], maxZoom: 15 })
+  if (farmSource.getFeatures().length) {
+    const ext = farmSource.getExtent()
+    mapInstance.value?.getView().fit(ext, { padding: [60,60,60,60], maxZoom: 14 })
   }
 }
 
-const showPopup = (coordinate, farm) => {
-  popupContent.value = farm
-  overlay.value.setPosition(coordinate)
-}
+// ── Load spatial layers from /api/spatial/overview ───────────
+async function loadSpatialLayers() {
+  try {
+    const data = await spatialStore.fetchMapOverview()
+    const geoJsonFormat = new GeoJSON()
 
-const closePopup = () => {
-  overlay.value.setPosition(undefined)
-  popupContent.value = null
-}
+    // Subcounty boundaries
+    if (data.layers?.subcounties?.features?.length) {
+      const features = geoJsonFormat.readFeatures(data.layers.subcounties, {
+        featureProjection: 'EPSG:3857',
+      })
+      subcountySource.clear()
+      subcountySource.addFeatures(features)
+    }
 
-// Helpers
-const getMarkerColor = health => {
-  if (health >= 80) return '#22c55e'
-  if (health >= 60) return '#3b82f6'
-  if (health >= 40) return '#f59e0b'
-  return '#ef4444'
-}
+    // Markets
+    if (data.layers?.markets?.features?.length) {
+      const features = geoJsonFormat.readFeatures(data.layers.markets, {
+        featureProjection: 'EPSG:3857',
+      })
+      marketSource.clear()
+      marketSource.addFeatures(features)
+    }
 
-const getHealthSeverity = health => {
-  if (health >= 80) return 'success'
-  if (health >= 60) return 'info'
-  if (health >= 40) return 'warn'
-  return 'danger'
-}
+    // Farm GeoJSON from spatial API — merge health data from farmsStore
+    if (data.layers?.farms?.features?.length) {
+      const farmMap = Object.fromEntries(farmsStore.farms.map(f => [f.id, f]))
+      const features = geoJsonFormat.readFeatures(data.layers.farms, {
+        featureProjection: 'EPSG:3857',
+      })
+      // Attach full farm object (with health data) to each spatial feature
+      features.forEach(feat => {
+        const id   = feat.get('id')
+        const full = farmMap[id]
+        if (full) feat.set('farm', full)
+      })
+      farmSource.clear()
+      farmSource.addFeatures(features.filter(f => f.get('farm')))
 
-const getHealthClass = (health) => {
-  if (health >= 80) return 'bg-green-100 text-green-800'
-  if (health >= 60) return 'bg-blue-100 text-blue-800'
-  if (health >= 40) return 'bg-orange-100 text-orange-800'
-  return 'bg-red-100 text-red-800'
-}
+      if (farmSource.getFeatures().length) {
+        const ext = farmSource.getExtent()
+        mapInstance.value?.getView().fit(ext, { padding: [60,60,60,60], maxZoom: 14 })
+      }
+    } else {
+      // Spatial API has no GeoJSON yet (location column not populated) — fall back to lat/lon
+      loadFarmFeatures()
+    }
 
-const selectFarm = farm => {
-  selectedFarm.value = farm
-  centerOnFarm(farm)
-}
-
-const viewFarmDetails = farmId => {
-  router.push(`/farms/${farmId}`)
-}
-
-const centerOnFarm = farm => {
-  if (!map.value) return
-
-  const features = vectorSource.value.getFeatures()
-  const feature = features.find(f => f.get('farm').id === farm.id)
-
-  if (feature) {
-    const geometry = feature.getGeometry()
-    const extent = geometry.getExtent()
-    map.value.getView().fit(extent, {
-      padding: [100, 100, 100, 100],
-      maxZoom: 16,
-      duration: 500
-    })
-
-    const center = geometry.getType() === 'Polygon'
-        ? geometry.getInteriorPoint().getCoordinates()
-        : geometry.getCoordinates()
-    showPopup(center, farm)
+  } catch (err) {
+    console.warn('Spatial overview failed, falling back to lat/lon points:', err)
+    loadFarmFeatures()
   }
 }
 
-const resetFilters = () => {
-  searchQuery.value = ''
+// ── Popup helpers ─────────────────────────────────────────────
+function closePopup() {
+  overlayObj.value?.setPosition(undefined)
+  popupFarm.value = null
+}
+
+function centerOnFarm(farm) {
+  if (!mapInstance.value) return
+  const feat = farmSource.getFeatures().find(f => f.get('farm')?.id === farm.id)
+  if (!feat) return
+  const geom   = feat.getGeometry()
+  const center = geom.getType() === 'Polygon'
+      ? geom.getInteriorPoint?.().getCoordinates() ?? geom.getFirstCoordinate()
+      : geom.getCoordinates()
+  mapInstance.value.getView().fit(geom.getExtent(), { padding:[100,100,100,100], maxZoom:16, duration:500 })
+  popupFarm.value = farm
+  overlayObj.value.setPosition(center)
+}
+
+function resetFilters() {
+  searchQuery.value    = ''
   selectedRegion.value = 'all'
   selectedHealth.value = 'all'
 }
 
-watch(() => farmsStore.farms, farms => {
-  if (farms?.length) alertsStore.generateAlerts(farms)
-}, { immediate: true })
+// ── Layer visibility toggles ──────────────────────────────────
+function toggleLayer(key) {
+  layersVisible.value[key] = !layersVisible.value[key]
+  mapInstance.value?.getLayers().forEach(l => {
+    const src = l.getSource?.()
+    if (key === 'subcounties' && src === subcountySource)
+      l.setVisible(layersVisible.value.subcounties)
+    if (key === 'markets' && src === marketSource)
+      l.setVisible(layersVisible.value.markets)
+  })
+}
+
+// ── Watchers ──────────────────────────────────────────────────
+watch(activeBasemap, id => basemaps?.switchBasemap(id))
 
 watch([selectedRegion, selectedHealth, searchQuery], () => {
-  if (map.value) loadFarms()
+  if (mapInstance.value) loadFarmFeatures()
 })
 
-watch(() => selectedFarm.value, (newFarm) => {
-  if (newFarm && map.value) {
-    centerOnFarm(newFarm)
-  }
-  vectorSource.value?.changed()
-})
+watch(() => farmsStore.farms, farms => {
+  alertsStore.generateAlerts(farms)
+  if (mapInstance.value) loadSpatialLayers()
+}, { immediate: true })
 
+// ── Mount ─────────────────────────────────────────────────────
 onMounted(async () => {
   await farmsStore.fetchFarms()
-  nextTick(() => {
+  nextTick(async () => {
     initMap()
+    await loadSpatialLayers()
   })
 })
 </script>
 
+<template>
+  <div class="farm-map-page">
+
+    <!-- Controls bar -->
+    <div class="map-controls">
+      <div class="flex flex-wrap gap-3 items-center">
+        <span class="p-input-icon-left flex-1 min-w-[180px]">
+          <i class="pi pi-search" />
+          <InputText v-model="searchQuery" placeholder="Search farms…" class="w-full" />
+        </span>
+
+        <Select v-model="selectedRegion" :options="regions"
+                optionLabel="label" optionValue="value"
+                placeholder="All Subcounties" class="w-48" />
+
+        <Select v-model="selectedHealth" :options="healthFilters"
+                optionLabel="label" optionValue="value"
+                placeholder="All Farms" class="w-44" />
+
+        <Button icon="pi pi-filter-slash" label="Reset"
+                severity="secondary" outlined size="small"
+                @click="resetFilters" />
+
+        <Button icon="pi pi-plus" label="Add Farm" size="small"
+                @click="router.push('/farms/add')" />
+      </div>
+
+      <!-- Stats -->
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
+        <div v-for="stat in [
+          { label:'Total',     value: mapStats.total,     cls:'gray'   },
+          { label:'Excellent', value: mapStats.excellent, cls:'green'  },
+          { label:'Good',      value: mapStats.good,      cls:'blue'   },
+          { label:'Fair',      value: mapStats.fair,      cls:'orange' },
+          { label:'Poor',      value: mapStats.poor,      cls:'red'    },
+        ]" :key="stat.label" class="stat-card" :class="`stat-card--${stat.cls}`">
+          <div class="stat-label">{{ stat.label }}</div>
+          <div class="stat-value">{{ stat.value }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Map -->
+    <div class="map-wrapper">
+      <div ref="mapContainer" class="map-container"></div>
+
+      <!-- Popup -->
+      <div ref="popupContainer" class="ol-popup">
+        <MapPopup :farm="popupFarm"
+                  @close="closePopup"
+                  @view="router.push(`/farms/${$event}`)" />
+      </div>
+
+      <!-- Bottom-left: legend -->
+      <div class="map-legend">
+        <MapLegend />
+      </div>
+
+      <!-- Bottom-center: basemap switcher -->
+      <div class="map-basemap-switcher">
+        <BasemapSwitcher v-model="activeBasemap" />
+      </div>
+
+      <!-- Bottom-right: layer toggles -->
+      <div class="map-layer-controls">
+        <div class="layer-toggle-panel">
+          <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Layers</p>
+          <button class="layer-btn" :class="{ 'layer-btn--on': layersVisible.subcounties }"
+                  @click="toggleLayer('subcounties')">
+            <span class="layer-dot" style="background:rgba(99,102,241,0.7)"></span>
+            Subcounties
+          </button>
+          <button class="layer-btn" :class="{ 'layer-btn--on': layersVisible.markets }"
+                  @click="toggleLayer('markets')">
+            <span class="layer-dot" style="background:rgba(234,179,8,0.9)"></span>
+            Markets
+          </button>
+        </div>
+      </div>
+
+      <!-- Top-right: farm list button -->
+      <div class="map-farm-list-btn">
+        <Button icon="pi pi-list" label="Farm List"
+                severity="info" size="small"
+                @click="showSidebar = true" />
+      </div>
+
+      <!-- Loading overlay -->
+      <div v-if="spatialStore.loading" class="map-loading">
+        <i class="pi pi-spin pi-spinner text-2xl text-white"></i>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <MapSidebar
+        v-model:visible="showSidebar"
+        v-model:selectedFarm="selectedFarm"
+        :farms="filteredFarms"
+        @center="centerOnFarm"
+        @view="router.push(`/farms/${$event}`)"
+    />
+  </div>
+</template>
+
 <style scoped>
 .farm-map-page { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-.map-controls { flex-shrink: 0; z-index: 1000; }
-.map-wrapper { flex: 1; position: relative; overflow: hidden; }
+.map-controls  { flex-shrink: 0; padding: 12px 16px; background: white;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08); z-index: 100; }
+.map-wrapper   { flex: 1; position: relative; overflow: hidden; }
 .map-container { width: 100%; height: 100%; }
-.map-legend { position: absolute; bottom: 20px; left: 20px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-.farm-list-toggle { position: absolute; top: 20px; right: 20px; z-index: 1000; }
-.farm-list-item { transition: all 0.2s; }
-.farm-list-item:hover { transform: translateX(4px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 
-.ol-popup {
-  position: absolute;
-  background-color: white;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-  border-radius: 10px;
-  bottom: 12px;
-  left: -50px;
-  min-width: 280px;
+/* Stats */
+.stat-card        { padding: 10px 12px; border-radius: 8px; border: 1px solid; }
+.stat-label       { font-size: 0.7rem; margin-bottom: 2px; }
+.stat-value       { font-size: 1.4rem; font-weight: 800; }
+.stat-card--gray  { background:#f9fafb; border-color:#e5e7eb; color:#374151; }
+.stat-card--green { background:#f0fdf4; border-color:#bbf7d0; color:#166534; }
+.stat-card--blue  { background:#eff6ff; border-color:#bfdbfe; color:#1e40af; }
+.stat-card--orange{ background:#fff7ed; border-color:#fed7aa; color:#9a3412; }
+.stat-card--red   { background:#fef2f2; border-color:#fecaca; color:#991b1b; }
+
+/* Popup */
+.ol-popup { position: absolute; bottom: 12px; left: -50px; }
+
+/* Floating UI positions */
+.map-legend         { position: absolute; bottom: 20px; left: 16px;  z-index: 1000; }
+.map-basemap-switcher{ position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; }
+.map-layer-controls { position: absolute; bottom: 20px; right: 16px; z-index: 1000; }
+.map-farm-list-btn  { position: absolute; top: 16px;    right: 16px; z-index: 1000; }
+
+/* Layer toggle panel */
+.layer-toggle-panel {
+  background: white; border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12); display: flex; flex-direction: column; gap: 6px;
 }
-
-.popup-content {
-  position: relative;
+.layer-btn {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 8px; border-radius: 6px; border: 1px solid #e5e7eb;
+  background: #f9fafb; cursor: pointer; font-size: 12px; font-weight: 500;
+  color: #6b7280; transition: all 0.15s;
 }
+.layer-btn--on  { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+.layer-dot      { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
-@media (max-width: 768px) {
-  .map-legend { bottom: 10px; left: 10px; font-size: 0.875rem; }
-  .farm-list-toggle { top: 10px; right: 10px; }
+/* Loading overlay */
+.map-loading {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.25);
+  display: flex; align-items: center; justify-content: center; z-index: 2000;
 }
 </style>
