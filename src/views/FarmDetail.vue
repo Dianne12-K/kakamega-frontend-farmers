@@ -12,10 +12,12 @@ import TabPanel   from 'primevue/tabpanel'
 import Skeleton   from 'primevue/skeleton'
 import Tag        from 'primevue/tag'
 
-import HealthTab         from '@/components/farm-detail/HealthTab.vue'
-import MoistureTab       from '@/components/farm-detail/MoistureTab.vue'
-import WeatherTab        from '@/components/farm-detail/WeatherTab.vue'
-import SatelliteTab      from '@/components/farm-detail/SatelliteTab.vue'
+import HealthTab          from '@/components/farm-detail/HealthTab.vue'
+import MoistureTab        from '@/components/farm-detail/MoistureTab.vue'
+import WeatherTab         from '@/components/farm-detail/WeatherTab.vue'
+import SatelliteTab       from '@/components/farm-detail/SatelliteTab.vue'
+import MLTab              from '@/components/farm-detail/MLTab.vue'
+import Phase3Tab          from '@/components/farm-detail/Phase3Tab.vue'
 import RecommendationCard from '@/components/RecommendationCard.vue'
 
 const route          = useRoute()
@@ -38,11 +40,9 @@ const activeTab      = ref(0)
 const loadFarmData = async () => {
   loading.value = true
   try {
-    // fetchFarmById returns the full farm object
     const data = await farmsStore.fetchFarmById(farmId.value)
     farm.value = data?.farm ?? data
 
-    // Load supporting data in parallel
     const [healthRes, moistureRes, recRes] = await Promise.allSettled([
       farmsStore.fetchFarmNDVI(farmId.value),
       farmsStore.fetchFarmIndices(farmId.value),
@@ -69,7 +69,7 @@ const loadFarmData = async () => {
   }
 }
 
-// ── Manual refresh (triggers GEE pull) ───────────────────────
+// ── Manual refresh ────────────────────────────────────────────
 const refreshData = async () => {
   try {
     await farmsStore.refreshFarmSatelliteData(farmId.value)
@@ -154,7 +154,7 @@ onMounted(loadFarmData)
           <div class="flex gap-2">
             <Button label="Refresh Data" icon="pi pi-refresh" outlined @click="refreshData"
                     :loading="farmsStore.loading" />
-            <Button label="Edit Farm"    icon="pi pi-pencil"  outlined />
+            <Button label="Edit Farm" icon="pi pi-pencil" outlined />
           </div>
         </div>
       </template>
@@ -173,25 +173,33 @@ onMounted(loadFarmData)
           <template #content>
             <TabView v-model:activeIndex="activeTab">
 
-              <TabPanel header="🌱 Health">
+              <TabPanel header="Health">
                 <HealthTab v-if="!loading && healthData" :data="healthData" :farm="farm" />
                 <div v-else class="space-y-4">
                   <Skeleton height="200px" /><Skeleton height="300px" />
                 </div>
               </TabPanel>
 
-              <TabPanel header="💧 Moisture">
+              <TabPanel header="Moisture">
                 <MoistureTab v-if="!loading && moistureData" :data="moistureData" :farm="farm" />
                 <div v-else class="space-y-4"><Skeleton height="200px" /></div>
               </TabPanel>
 
-              <TabPanel header="🛰️ Satellite">
+              <TabPanel header="Satellite">
                 <SatelliteTab :farm-id="farmId" :farm="farm" />
               </TabPanel>
 
-              <TabPanel header="☀️ Weather">
+              <TabPanel header="Weather">
                 <WeatherTab v-if="!loading && weatherData" :data="weatherData" :farm="farm" />
                 <div v-else class="space-y-4"><Skeleton height="400px" /></div>
+              </TabPanel>
+
+              <TabPanel header="AI Insights">
+                <MLTab :farm-id="farmId" :farm="farm" />
+              </TabPanel>
+
+              <TabPanel header="Phase 3">
+                <Phase3Tab :farm-id="farmId" :farm="farm" />
               </TabPanel>
 
             </TabView>
@@ -212,7 +220,7 @@ onMounted(loadFarmData)
           <template #content><Skeleton height="200px" /></template>
         </Card>
 
-        <!-- Quick Stats — now from real data -->
+        <!-- Quick Stats -->
         <Card>
           <template #title><span class="text-lg">Quick Stats</span></template>
           <template #content>
@@ -242,7 +250,7 @@ onMounted(loadFarmData)
           </template>
         </Card>
 
-        <!-- Activity Log (static for now — Phase 2: wire to DB) -->
+        <!-- Activity Log -->
         <Card>
           <template #title><span class="text-lg">Recent Activity</span></template>
           <template #content>

@@ -25,18 +25,20 @@ import 'ol/ol.css'
 import Button    from 'primevue/button'
 import Select    from 'primevue/select'
 import InputText from 'primevue/inputtext'
+import Dialog    from 'primevue/dialog'
 
 // Sub-components
 import BasemapSwitcher from '@/composables/map/BasemapSwitcher.vue'
 import MapPopup        from '@/composables/map/MapPopup.vue'
 import MapLegend       from '@/composables/map/MapLegend.vue'
 import MapSidebar      from '@/composables/map/MapSidebar.vue'
+import BoundaryUpload  from '@/components/BoundaryUpload.vue'
 
 const router       = useRouter()
 const farmsStore   = useFarmsStore()
 const alertsStore  = useAlertsStore()
 const spatialStore = useSpatialStore()
-const { getFarmStyle, getPointStyle } = useMapStyles()
+const { getFeatureStyle } = useMapStyles()
 
 // ── Map refs ──────────────────────────────────────────────────
 const mapContainer   = ref(null)
@@ -50,13 +52,14 @@ const subcountySource = new VectorSource()
 const marketSource    = new VectorSource()
 
 // State
-const popupFarm      = ref(null)
-const hoveredFarm    = ref(null)
-const selectedFarm   = ref(null)
-const showSidebar    = ref(false)
-const activeBasemap  = ref('osm')
-const layersVisible  = ref({ subcounties: true, markets: true })
-let   basemaps       = null
+const popupFarm         = ref(null)
+const hoveredFarm       = ref(null)
+const selectedFarm      = ref(null)
+const showSidebar       = ref(false)
+const showUploadDialog  = ref(false)
+const activeBasemap     = ref('osm')
+const layersVisible     = ref({ subcounties: true, markets: true })
+let   basemaps          = null
 
 // ── Filters ───────────────────────────────────────────────────
 const searchQuery    = ref('')
@@ -92,11 +95,10 @@ const filteredFarms = computed(() => {
   let list = farmsStore.farms
 
   if (selectedRegion.value !== 'all')
-    list = list.filter(f => {
-      const ward = f.ward_id  // fallback filter by subcounty name if available
-      return f.subcounty_name === selectedRegion.value ||
-          f.subCounty      === selectedRegion.value
-    })
+    list = list.filter(f =>
+        f.subcounty_name === selectedRegion.value ||
+        f.subCounty      === selectedRegion.value
+    )
 
   if (selectedHealth.value !== 'all')
     list = list.filter(f => {
@@ -132,8 +134,6 @@ const mapStats = computed(() => {
 })
 
 // ── Styles ────────────────────────────────────────────────────
-
-// Subcounty boundary style
 const subcountyStyle = new Style({
   fill:   new Fill({ color: 'rgba(99, 102, 241, 0.05)' }),
   stroke: new Stroke({ color: 'rgba(99, 102, 241, 0.6)', width: 1.5, lineDash: [6, 4] }),
@@ -150,7 +150,6 @@ function subcountyStyleFn(feature) {
   return s
 }
 
-// Market pin style
 function marketStyleFn(feature) {
   return new Style({
     image: new CircleStyle({
@@ -168,16 +167,14 @@ function marketStyleFn(feature) {
   })
 }
 
-// Farm point/polygon style
+// Single style fn — getFeatureStyle handles Polygon vs Point automatically
 function farmStyleFn(feature) {
   const farm = feature.get('farm')
   if (!farm) return null
-  const sel = selectedFarm.value?.id === farm.id
-  const hov = hoveredFarm.value?.id  === farm.id
-  const type = feature.getGeometry().getType()
-  return type === 'Polygon'
-      ? getFarmStyle(farm, { selected: sel, hovered: hov })
-      : getPointStyle(farm, { selected: sel })
+  return getFeatureStyle(feature, {
+    selected: selectedFarm.value?.id === farm.id,
+    hovered:  hoveredFarm.value?.id  === farm.id,
+  })
 }
 
 // ── Map init ──────────────────────────────────────────────────
@@ -190,23 +187,9 @@ function initMap() {
     offset:      [0, -10],
   })
 
-  const subcountyLayer = new VectorLayer({
-    source:  subcountySource,
-    style:   subcountyStyleFn,
-    zIndex:  1,
-  })
-
-  const marketLayer = new VectorLayer({
-    source:  marketSource,
-    style:   marketStyleFn,
-    zIndex:  2,
-  })
-
-  const farmLayer = new VectorLayer({
-    source:  farmSource,
-    style:   farmStyleFn,
-    zIndex:  3,
-  })
+  const subcountyLayer = new VectorLayer({ source: subcountySource, style: subcountyStyleFn, zIndex: 1 })
+  const marketLayer    = new VectorLayer({ source: marketSource,    style: marketStyleFn,    zIndex: 2 })
+  const farmLayer      = new VectorLayer({ source: farmSource,      style: farmStyleFn,      zIndex: 3 })
 
   mapInstance.value = new Map({
     target:   mapContainer.value,
@@ -227,7 +210,15 @@ function initMap() {
       const farm = feat.get('farm')
       selectedFarm.value = farm
       popupFarm.value    = farm
-      overlayObj.value.setPosition(evt.coordinate)
+      farmSource.changed()
+
+      // For polygons: anchor popup at interior point so it doesn't fly off-farm
+      const geom = feat.getGeometry()
+      const type = geom.getType()
+      const pos  = (type === 'Polygon' || type === 'MultiPolygon')
+          ? (geom.getInteriorPoint?.()?.getCoordinates() ?? evt.coordinate)
+          : geom.getCoordinates()
+      overlayObj.value.setPosition(pos)
     } else {
       closePopup()
     }
@@ -244,7 +235,7 @@ function initMap() {
   })
 }
 
-// ── Load farm features from farmsStore ───────────────────────
+// ── Load farm features (point fallback) ──────────────────────
 function loadFarmFeatures() {
   if (!farmSource) return
   farmSource.clear()
@@ -270,45 +261,39 @@ async function loadSpatialLayers() {
     const data = await spatialStore.fetchMapOverview()
     const geoJsonFormat = new GeoJSON()
 
-    // Subcounty boundaries
     if (data.layers?.subcounties?.features?.length) {
-      const features = geoJsonFormat.readFeatures(data.layers.subcounties, {
-        featureProjection: 'EPSG:3857',
-      })
       subcountySource.clear()
-      subcountySource.addFeatures(features)
+      subcountySource.addFeatures(
+          geoJsonFormat.readFeatures(data.layers.subcounties, { featureProjection: 'EPSG:3857' })
+      )
     }
 
-    // Markets
     if (data.layers?.markets?.features?.length) {
-      const features = geoJsonFormat.readFeatures(data.layers.markets, {
-        featureProjection: 'EPSG:3857',
-      })
       marketSource.clear()
-      marketSource.addFeatures(features)
+      marketSource.addFeatures(
+          geoJsonFormat.readFeatures(data.layers.markets, { featureProjection: 'EPSG:3857' })
+      )
     }
 
-    // Farm GeoJSON from spatial API — merge health data from farmsStore
     if (data.layers?.farms?.features?.length) {
       const farmMap = Object.fromEntries(farmsStore.farms.map(f => [f.id, f]))
-      const features = geoJsonFormat.readFeatures(data.layers.farms, {
-        featureProjection: 'EPSG:3857',
-      })
-      // Attach full farm object (with health data) to each spatial feature
+      const features = geoJsonFormat.readFeatures(data.layers.farms, { featureProjection: 'EPSG:3857' })
+
+      // Attach full farm object (health data etc.) to each spatial feature
       features.forEach(feat => {
-        const id   = feat.get('id')
-        const full = farmMap[id]
+        const full = farmMap[feat.get('id')]
         if (full) feat.set('farm', full)
       })
+
       farmSource.clear()
       farmSource.addFeatures(features.filter(f => f.get('farm')))
 
       if (farmSource.getFeatures().length) {
-        const ext = farmSource.getExtent()
-        mapInstance.value?.getView().fit(ext, { padding: [60,60,60,60], maxZoom: 14 })
+        mapInstance.value?.getView().fit(
+            farmSource.getExtent(), { padding: [60,60,60,60], maxZoom: 14 }
+        )
       }
     } else {
-      // Spatial API has no GeoJSON yet (location column not populated) — fall back to lat/lon
       loadFarmFeatures()
     }
 
@@ -318,23 +303,35 @@ async function loadSpatialLayers() {
   }
 }
 
+// ── After upload — refresh farms + reload map ─────────────────
+async function onBoundaryUploaded() {
+  showUploadDialog.value = false
+  await farmsStore.fetchFarms()
+  await loadSpatialLayers()
+}
+
 // ── Popup helpers ─────────────────────────────────────────────
 function closePopup() {
   overlayObj.value?.setPosition(undefined)
-  popupFarm.value = null
+  popupFarm.value    = null
+  selectedFarm.value = null
+  farmSource.changed()
 }
 
 function centerOnFarm(farm) {
   if (!mapInstance.value) return
   const feat = farmSource.getFeatures().find(f => f.get('farm')?.id === farm.id)
   if (!feat) return
-  const geom   = feat.getGeometry()
-  const center = geom.getType() === 'Polygon'
-      ? geom.getInteriorPoint?.().getCoordinates() ?? geom.getFirstCoordinate()
+  const geom = feat.getGeometry()
+  const type = geom.getType()
+  const pos  = (type === 'Polygon' || type === 'MultiPolygon')
+      ? (geom.getInteriorPoint?.()?.getCoordinates() ?? geom.getFirstCoordinate())
       : geom.getCoordinates()
-  mapInstance.value.getView().fit(geom.getExtent(), { padding:[100,100,100,100], maxZoom:16, duration:500 })
-  popupFarm.value = farm
-  overlayObj.value.setPosition(center)
+  mapInstance.value.getView().fit(geom.getExtent(), { padding: [100,100,100,100], maxZoom: 16, duration: 500 })
+  selectedFarm.value = farm
+  popupFarm.value    = farm
+  overlayObj.value.setPosition(pos)
+  farmSource.changed()
 }
 
 function resetFilters() {
@@ -343,7 +340,6 @@ function resetFilters() {
   selectedHealth.value = 'all'
 }
 
-// ── Layer visibility toggles ──────────────────────────────────
 function toggleLayer(key) {
   layersVisible.value[key] = !layersVisible.value[key]
   mapInstance.value?.getLayers().forEach(l => {
@@ -399,6 +395,11 @@ onMounted(async () => {
         <Button icon="pi pi-filter-slash" label="Reset"
                 severity="secondary" outlined size="small"
                 @click="resetFilters" />
+
+        <!-- NEW: Upload Boundaries button -->
+        <Button icon="pi pi-upload" label="Upload Boundaries"
+                severity="secondary" outlined size="small"
+                @click="showUploadDialog = true" />
 
         <Button icon="pi pi-plus" label="Add Farm" size="small"
                 @click="router.push('/farms/add')" />
@@ -478,6 +479,18 @@ onMounted(async () => {
         @center="centerOnFarm"
         @view="router.push(`/farms/${$event}`)"
     />
+
+    <!-- Boundary Upload Dialog -->
+    <Dialog
+        v-model:visible="showUploadDialog"
+        header="Upload Farm Boundaries"
+        :style="{ width: '500px' }"
+        :modal="true"
+        :draggable="false"
+    >
+      <BoundaryUpload @uploaded="onBoundaryUploaded" />
+    </Dialog>
+
   </div>
 </template>
 
@@ -502,10 +515,10 @@ onMounted(async () => {
 .ol-popup { position: absolute; bottom: 12px; left: -50px; }
 
 /* Floating UI positions */
-.map-legend         { position: absolute; bottom: 20px; left: 16px;  z-index: 1000; }
+.map-legend          { position: absolute; bottom: 20px; left: 16px;  z-index: 1000; }
 .map-basemap-switcher{ position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; }
-.map-layer-controls { position: absolute; bottom: 20px; right: 16px; z-index: 1000; }
-.map-farm-list-btn  { position: absolute; top: 16px;    right: 16px; z-index: 1000; }
+.map-layer-controls  { position: absolute; bottom: 20px; right: 16px; z-index: 1000; }
+.map-farm-list-btn   { position: absolute; top: 16px;    right: 16px; z-index: 1000; }
 
 /* Layer toggle panel */
 .layer-toggle-panel {

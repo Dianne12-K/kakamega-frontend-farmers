@@ -102,6 +102,64 @@ export const useSatelliteStore = defineStore('satellite', () => {
         }
     }
 
+    // ── Phase 3: Zonal Stats ──────────────────────────────────
+    async function fetchZonalStats(farmId, days = 30) {
+        loading.value = true
+        try {
+            const response = await api.get(`/satellite/farms/${farmId}/zonal-stats`, { params: { days } })
+            return response.data
+        } catch (err) {
+            error.value = err.response?.data?.error || 'Failed to fetch zonal stats'
+            throw err
+        } finally {
+            loading.value = false
+        }
+    }
+
+    // ── Phase 3: Change Detection ─────────────────────────────
+    async function fetchChangeDetection(farmId, days = 30) {
+        loading.value = true
+        try {
+            const response = await api.get(`/satellite/farms/${farmId}/change-detection`, { params: { days } })
+            return response.data
+        } catch (err) {
+            error.value = err.response?.data?.error || 'Failed to fetch change detection'
+            throw err
+        } finally {
+            loading.value = false
+        }
+    }
+
+    // ── Phase 3: Stress Hotspots ──────────────────────────────
+    async function fetchHotspots(farmId, days = 30, gridSize = 3) {
+        loading.value = true
+        try {
+            const response = await api.get(`/satellite/farms/${farmId}/hotspots`, {
+                params: { days, grid_size: gridSize }
+            })
+            return response.data
+        } catch (err) {
+            error.value = err.response?.data?.error || 'Failed to fetch hotspots'
+            throw err
+        } finally {
+            loading.value = false
+        }
+    }
+
+    // ── Phase 3: All in one ───────────────────────────────────
+    async function fetchPhase3(farmId, days = 30) {
+        loading.value = true
+        try {
+            const response = await api.get(`/satellite/farms/${farmId}/phase3`, { params: { days } })
+            return response.data
+        } catch (err) {
+            error.value = err.response?.data?.error || 'Failed to fetch Phase 3 data'
+            throw err
+        } finally {
+            loading.value = false
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────
     function getNDVI(farmId)    { return ndviData.value[farmId]    || null }
     function getIndices(farmId) { return indicesData.value[farmId] || null }
@@ -111,6 +169,7 @@ export const useSatelliteStore = defineStore('satellite', () => {
         ndviData, indicesData, historyData, coverage,
         loading, refreshing, error,
         fetchNDVI, fetchIndices, refreshFarmData, fetchHistory, fetchCoverage,
+        fetchZonalStats, fetchChangeDetection, fetchHotspots, fetchPhase3,
         getNDVI, getIndices, getHistory,
     }
 })

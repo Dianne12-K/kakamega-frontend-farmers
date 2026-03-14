@@ -9,7 +9,8 @@ import Menubar from 'primevue/menubar'
 import Button from 'primevue/button'
 import Avatar from 'primevue/avatar'
 import Badge from 'primevue/badge'
-import OverlayPanel from 'primevue/overlaypanel'
+// import OverlayPanel from 'primevue/overlaypanel'
+import Popover from 'primevue/popover'
 import Toast from 'primevue/toast'
 
 const router = useRouter()
@@ -115,7 +116,7 @@ onMounted(async () => {
                 />
               </Button>
 
-              <OverlayPanel ref="notificationPanel" style="width: 400px">
+              <Popover  ref="notificationPanel" style="width: 400px">
                 <div class="p-3">
                   <h3 class="text-lg font-semibold mb-3">Notifications</h3>
 
@@ -147,7 +148,7 @@ onMounted(async () => {
                     />
                   </div>
                 </div>
-              </OverlayPanel>
+              </Popover >
             </div>
 
             <!-- User Menu -->
