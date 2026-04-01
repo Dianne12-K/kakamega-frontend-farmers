@@ -1,37 +1,32 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { useFarmsStore }     from '@/stores/farms'
-import { useAlertsStore }    from '@/stores/alerts'
-import { useAnalyticsStore } from '@/stores/analytics'
-import { useSatelliteStore } from '@/stores/satellite'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter }          from 'vue-router'
+import { useFarmsStore }      from '@/stores/farms'
+import { useAlertsStore }     from '@/stores/alerts'
+import { useAnalyticsStore }  from '@/stores/analytics'
+import { useSatelliteStore }  from '@/stores/satellite'
+import { useLayersStore }     from '@/stores/layers'
 
-import Card      from 'primevue/card'
-import Button    from 'primevue/button'
-import DataTable from 'primevue/datatable'
-import Column    from 'primevue/column'
-import Skeleton  from 'primevue/skeleton'
-import Tag       from 'primevue/tag'
+import Card     from 'primevue/card'
+import Button   from 'primevue/button'
+import Skeleton from 'primevue/skeleton'
+import Tag      from 'primevue/tag'
 
-import FarmMap          from '@/components/FarmMap.vue'
-import StatsCards       from '@/components/StatsCards.vue'
-import WeatherWidget    from '@/components/WeatherWidget.vue'
+import StatsCards    from '@/components/StatsCards.vue'
+import WeatherWidget from '@/components/WeatherWidget.vue'
 
-const router          = useRouter()
-const farmsStore      = useFarmsStore()
-const alertsStore     = useAlertsStore()
-const analyticsStore  = useAnalyticsStore()
-const satelliteStore  = useSatelliteStore()
+const router         = useRouter()
+const farmsStore     = useFarmsStore()
+const alertsStore    = useAlertsStore()
+const analyticsStore = useAnalyticsStore()
+const satelliteStore = useSatelliteStore()
+const layersStore    = useLayersStore()
 
-const selectedFarm = ref(null)
-
-/* ── Alerts ──────────────────────────────────────────────── */
 const priorityAlerts = computed(() => [
   ...alertsStore.criticalAlerts.slice(0, 2),
-  ...alertsStore.highAlerts.slice(0, 3)
+  ...alertsStore.highAlerts.slice(0, 3),
 ].slice(0, 5))
 
-/* ── System Status (from real API) ──────────────────────── */
 const coveragePercent = computed(() =>
     analyticsStore.platformKPIs?.monitoring_rate_pct ?? null
 )
@@ -42,20 +37,17 @@ const avgHealthScore = computed(() =>
 
 const lastUpdateLabel = computed(() => {
   if (!analyticsStore.platformKPIs) return '—'
-  // Use current time as proxy for "just loaded"
-  const now = new Date()
-  return now.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })
+  return new Date().toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' })
 })
 
 const healthStatusLabel = computed(() => {
   const score = avgHealthScore.value
-  if (score === null) return { label: '—', cls: 'text-gray-400' }
-  if (score >= 70)    return { label: 'Good',     cls: 'text-green-600' }
-  if (score >= 40)    return { label: 'Fair',      cls: 'text-yellow-600' }
-  return               { label: 'Needs Attention', cls: 'text-red-600' }
+  if (score === null)  return { label: '—',               cls: 'text-gray-400' }
+  if (score >= 70)     return { label: 'Good',            cls: 'text-green-600' }
+  if (score >= 40)     return { label: 'Fair',            cls: 'text-yellow-600' }
+  return                      { label: 'Needs Attention', cls: 'text-red-600' }
 })
 
-/* ── Health Overview Chart Data ─────────────────────────── */
 const healthBars = computed(() => {
   const h = analyticsStore.healthOverview?.health_overview
   if (!h) return []
@@ -67,20 +59,20 @@ const healthBars = computed(() => {
   ]
 })
 
-/* ── Event handlers ─────────────────────────────────────── */
-const handleFarmClick  = (farm) => { selectedFarm.value = farm }
-const viewFarmDetail   = (farmId) => router.push(`/farms/${farmId}`)
+const totalParcels = computed(() =>
+    layersStore.layers.reduce((s, l) => s + l.farm_count, 0)
+)
 
-/* ── Boot ───────────────────────────────────────────────── */
+const viewFarmDetail = (farmId) => router.push(`/farms/${farmId}`)
+
 onMounted(async () => {
-  if (farmsStore.farms.length === 0) {
-    await farmsStore.fetchFarms()
-  }
+  await farmsStore.fetchFarms()
   alertsStore.generateAlerts(farmsStore.farms)
-
-  // Load real analytics data in parallel
-  await analyticsStore.fetchDashboardData()
-  await satelliteStore.fetchCoverage()
+  await Promise.all([
+    analyticsStore.fetchDashboardData(),
+    satelliteStore.fetchCoverage(),
+    layersStore.fetchLayers(),
+  ])
 })
 </script>
 
@@ -88,91 +80,222 @@ onMounted(async () => {
   <div class="space-y-6">
 
     <!-- Page Header -->
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between flex-wrap gap-3">
       <div>
-        <h1 class="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p class="text-gray-600 mt-1">GeoAI Platform — Kakamega County</p>
+        <h1 class="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+        <p class="text-sm text-gray-500 mt-1">GeoAI Platform — Kakamega County</p>
       </div>
-      <div class="flex gap-3">
-        <Button label="Export Report" icon="pi pi-download" severity="secondary" outlined />
-        <Button label="Add Farm"      icon="pi pi-plus"     @click="router.push('/farms/add')" />
+      <div class="flex gap-2">
+        <Button label="Export Report" icon="pi pi-download" severity="secondary" outlined size="small" />
+        <Button label="Open Map"      icon="pi pi-map"      size="small"
+                @click="router.push('/farms')" />
       </div>
     </div>
 
-    <!-- Stats Cards -->
+    <!-- KPI Cards -->
     <StatsCards />
 
-    <!-- Main Content Grid -->
+    <!-- Layer Summary + Satellite Coverage row -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+      <Card>
+        <template #content>
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-500">Total Parcels</p>
+              <p class="text-3xl font-extrabold text-gray-900 mt-1">
+                {{ analyticsStore.loading ? '—' : totalParcels }}
+              </p>
+              <p class="text-xs text-gray-400 mt-1">
+                across {{ layersStore.layers.length }}
+                layer{{ layersStore.layers.length !== 1 ? 's' : '' }}
+              </p>
+            </div>
+            <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
+              <i class="pi pi-map text-xl text-blue-500"></i>
+            </div>
+          </div>
+        </template>
+      </Card>
+
+      <Card>
+        <template #content>
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-500">Satellite Coverage</p>
+              <p class="text-3xl font-extrabold mt-1"
+                 :class="(coveragePercent ?? 0) >= 80 ? 'text-green-600' : 'text-yellow-600'">
+                <Skeleton v-if="analyticsStore.loading" height="2rem" width="6rem" />
+                <span v-else>{{ coveragePercent !== null ? `${coveragePercent}%` : '—' }}</span>
+              </p>
+              <p class="text-xs text-gray-400 mt-1">farms monitored (30d)</p>
+            </div>
+            <div class="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center">
+              <i class="pi pi-satellite text-xl text-green-500"></i>
+            </div>
+          </div>
+        </template>
+      </Card>
+
+      <Card>
+        <template #content>
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-500">Average Health Score</p>
+              <p class="text-3xl font-extrabold mt-1" :class="healthStatusLabel.cls">
+                <Skeleton v-if="analyticsStore.loading" height="2rem" width="6rem" />
+                <span v-else>{{ avgHealthScore !== null ? `${avgHealthScore}/100` : '—' }}</span>
+              </p>
+              <p class="text-xs mt-1" :class="healthStatusLabel.cls">
+                {{ healthStatusLabel.label }}
+              </p>
+            </div>
+            <div class="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center">
+              <i class="pi pi-heart text-xl text-indigo-500"></i>
+            </div>
+          </div>
+        </template>
+      </Card>
+    </div>
+
+    <!-- Main content row -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-      <!-- Map (left — 2 cols) -->
-      <div class="lg:col-span-2">
+      <!-- Left: Health distribution + Layers summary -->
+      <div class="lg:col-span-2 space-y-6">
+
+        <!-- Health Distribution -->
+        <Card>
+          <template #title>
+                        <span class="text-base font-semibold text-gray-800">
+                            Farm Health Distribution
+                        </span>
+          </template>
+          <template #content>
+            <div v-if="analyticsStore.loading" class="space-y-4">
+              <Skeleton v-for="i in 4" :key="i" height="40px" border-radius="8px" />
+            </div>
+            <div v-else-if="healthBars.length" class="space-y-3">
+              <div v-for="bar in healthBars" :key="bar.label" class="space-y-1">
+                <div class="flex items-center justify-between text-sm">
+                  <span class="font-medium text-gray-700">{{ bar.label }}</span>
+                  <span class="text-gray-500">{{ bar.count }} farms</span>
+                </div>
+                <div class="h-3 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                      class="h-full rounded-full transition-all duration-700"
+                      :class="bar.color"
+                      :style="{ width: `${bar.pct}%` }"
+                  />
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-center py-8 text-gray-400">
+              <i class="pi pi-chart-bar text-3xl block mb-2"></i>
+              <p class="text-sm">No health data available yet</p>
+            </div>
+          </template>
+        </Card>
+
+        <!-- Layers Summary -->
         <Card>
           <template #title>
             <div class="flex items-center justify-between">
-              <span class="text-lg">Farm Locations</span>
+              <span class="text-base font-semibold text-gray-800">Map Layers</span>
               <Button
-                  icon="pi pi-refresh"
-                  text rounded
-                  @click="farmsStore.fetchFarms()"
-                  :loading="farmsStore.loading"
+                  label="Manage Layers"
+                  icon="pi pi-map"
+                  text size="small"
+                  @click="router.push('/farms')"
               />
             </div>
           </template>
           <template #content>
-            <FarmMap
-                :farms="farmsStore.farms"
-                :selected-farm="selectedFarm"
-                @farm-click="handleFarmClick"
-                @view-detail="viewFarmDetail"
-            />
+            <div v-if="!layersStore.layers.length" class="text-center py-8 text-gray-400">
+              <i class="pi pi-layers text-3xl block mb-2"></i>
+              <p class="text-sm">No layers uploaded yet</p>
+              <Button
+                  label="Upload Boundaries"
+                  icon="pi pi-upload"
+                  text size="small"
+                  class="mt-2"
+                  @click="router.push('/farms')"
+              />
+            </div>
+            <div v-else class="space-y-3">
+              <div
+                  v-for="layer in layersStore.layers"
+                  :key="layer.id"
+                  class="flex items-center gap-3 p-3 rounded-xl border border-gray-100
+                                       hover:bg-gray-50 transition-colors cursor-pointer"
+                  @click="router.push('/farms')"
+              >
+                <div
+                    class="w-4 h-4 rounded-full flex-shrink-0"
+                    :style="{ backgroundColor: layer.color }"
+                />
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-semibold text-gray-800 truncate">
+                    {{ layer.name }}
+                  </p>
+                  <p class="text-xs text-gray-400">
+                    {{ layer.farm_count }} parcel{{ layer.farm_count !== 1 ? 's' : '' }}
+                  </p>
+                </div>
+                <Tag
+                    :value="layer.visible ? 'Visible' : 'Hidden'"
+                    :severity="layer.visible ? 'success' : 'secondary'"
+                    size="small"
+                />
+              </div>
+            </div>
           </template>
         </Card>
+
       </div>
 
-      <!-- Right Sidebar -->
+      <!-- Right: Weather + Alerts + System Status -->
       <div class="space-y-6">
 
-        <!-- Weather -->
         <WeatherWidget />
 
         <!-- Priority Alerts -->
         <Card>
           <template #title>
             <div class="flex items-center justify-between">
-              <span class="text-lg">Priority Alerts</span>
+              <span class="text-base font-semibold text-gray-800">Priority Alerts</span>
               <Button label="View All" text size="small" @click="router.push('/alerts')" />
             </div>
           </template>
           <template #content>
-            <div v-if="priorityAlerts.length === 0" class="text-center py-8 text-gray-500">
-              <i class="pi pi-check-circle text-4xl text-green-500 mb-2 block"></i>
-              <p>No urgent alerts</p>
+            <div v-if="!priorityAlerts.length" class="text-center py-6 text-gray-400">
+              <i class="pi pi-check-circle text-3xl text-green-500 block mb-2"></i>
+              <p class="text-sm">No urgent alerts</p>
             </div>
             <div v-else class="space-y-3">
               <div
                   v-for="alert in priorityAlerts"
                   :key="alert.id"
-                  class="p-3 rounded-lg border cursor-pointer hover:shadow-md transition-shadow"
+                  class="p-3 rounded-lg border cursor-pointer hover:shadow-sm transition-shadow"
                   :class="{
-                  'bg-red-50 border-red-200':    alert.priority === 'critical',
-                  'bg-orange-50 border-orange-200': alert.priority === 'high',
-                  'bg-yellow-50 border-yellow-200': alert.priority === 'medium'
-                }"
+                                    'bg-red-50 border-red-200':    alert.priority === 'critical',
+                                    'bg-orange-50 border-orange-200': alert.priority === 'high',
+                                    'bg-yellow-50 border-yellow-200': alert.priority === 'medium',
+                                }"
                   @click="viewFarmDetail(alert.farmId)"
               >
-                <div class="flex items-start gap-3">
+                <div class="flex items-start gap-2">
                   <i
-                      class="pi pi-exclamation-triangle text-xl"
+                      class="pi pi-exclamation-triangle mt-0.5"
                       :class="{
-                      'text-red-600':    alert.priority === 'critical',
-                      'text-orange-600': alert.priority === 'high',
-                      'text-yellow-600': alert.priority === 'medium'
-                    }"
+                                            'text-red-600':    alert.priority === 'critical',
+                                            'text-orange-600': alert.priority === 'high',
+                                            'text-yellow-600': alert.priority === 'medium',
+                                        }"
                   ></i>
-                  <div class="flex-1">
-                    <p class="font-semibold text-sm text-gray-900">{{ alert.farmName }}</p>
-                    <p class="text-xs text-gray-700 mt-1">{{ alert.message }}</p>
+                  <div>
+                    <p class="text-sm font-semibold text-gray-900">{{ alert.farmName }}</p>
+                    <p class="text-xs text-gray-600 mt-0.5">{{ alert.message }}</p>
                   </div>
                 </div>
               </div>
@@ -180,78 +303,38 @@ onMounted(async () => {
           </template>
         </Card>
 
-        <!-- System Status — now wired to real API -->
+        <!-- System Status -->
         <Card>
           <template #title>
-            <span class="text-lg">System Status</span>
+            <span class="text-base font-semibold text-gray-800">System Status</span>
           </template>
           <template #content>
-            <div class="space-y-4">
-
-              <!-- Satellite Coverage -->
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-gray-600">Satellite Coverage</span>
-                <span v-if="analyticsStore.loading" class="w-20">
-                  <Skeleton height="1rem" />
-                </span>
-                <span v-else class="text-sm font-semibold"
-                      :class="coveragePercent >= 80 ? 'text-green-600' : 'text-yellow-600'"
+            <div class="space-y-3">
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">Satellite Coverage</span>
+                <span
+                    class="font-semibold"
+                    :class="(coveragePercent ?? 0) >= 80 ? 'text-green-600' : 'text-yellow-600'"
                 >
-                  <i class="pi pi-satellite mr-1"></i>
-                  {{ coveragePercent !== null ? `${coveragePercent}%` : '—' }}
-                </span>
+                                    {{ coveragePercent !== null ? `${coveragePercent}%` : '—' }}
+                                </span>
               </div>
-
-              <!-- Avg Health Score -->
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-gray-600">Avg Health Score</span>
-                <span v-if="analyticsStore.loading" class="w-20">
-                  <Skeleton height="1rem" />
-                </span>
-                <span v-else class="text-sm font-semibold" :class="healthStatusLabel.cls">
-                  <i class="pi pi-heart mr-1"></i>
-                  {{ avgHealthScore !== null ? `${avgHealthScore}/100` : '—' }}
-                  <span class="ml-1 text-xs">({{ healthStatusLabel.label }})</span>
-                </span>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">Avg Health Score</span>
+                <span class="font-semibold" :class="healthStatusLabel.cls">
+                                    {{ avgHealthScore !== null ? `${avgHealthScore}/100` : '—' }}
+                                </span>
               </div>
-
-              <!-- Farms Monitored -->
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-gray-600">Farms Monitored (30d)</span>
-                <span v-if="analyticsStore.loading" class="w-20">
-                  <Skeleton height="1rem" />
-                </span>
-                <span v-else class="text-sm font-semibold text-gray-900">
-                  {{ analyticsStore.platformKPIs?.farms_monitored_30d ?? '—' }}
-                  / {{ analyticsStore.platformKPIs?.total_farms ?? '—' }}
-                </span>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">Farms Monitored (30d)</span>
+                <span class="font-semibold text-gray-900">
+                                    {{ analyticsStore.platformKPIs?.farms_monitored_30d ?? '—' }}
+                                    / {{ analyticsStore.platformKPIs?.total_farms ?? '—' }}
+                                </span>
               </div>
-
-              <!-- Last Loaded -->
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-gray-600">Last Loaded</span>
-                <span class="text-sm font-semibold text-gray-900">{{ lastUpdateLabel }}</span>
-              </div>
-
-            </div>
-
-            <!-- Health Distribution Mini-Chart -->
-            <div v-if="healthBars.length" class="mt-4 pt-4 border-t border-gray-100">
-              <p class="text-xs text-gray-500 mb-2">Farm Health Distribution</p>
-              <div class="flex gap-1 h-3 rounded-full overflow-hidden">
-                <div
-                    v-for="bar in healthBars"
-                    :key="bar.label"
-                    :class="bar.color"
-                    :style="{ width: `${bar.pct}%` }"
-                    :title="`${bar.label}: ${bar.count} farms (${bar.pct}%)`"
-                ></div>
-              </div>
-              <div class="flex gap-3 mt-2 flex-wrap">
-                <div v-for="bar in healthBars" :key="bar.label" class="flex items-center gap-1">
-                  <span class="inline-block w-2 h-2 rounded-full" :class="bar.color"></span>
-                  <span class="text-xs text-gray-500">{{ bar.label }} ({{ bar.count }})</span>
-                </div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500">Last Loaded</span>
+                <span class="font-semibold text-gray-900">{{ lastUpdateLabel }}</span>
               </div>
             </div>
           </template>
@@ -259,56 +342,5 @@ onMounted(async () => {
 
       </div>
     </div>
-
-    <!-- Farms Requiring Attention Table -->
-    <Card>
-      <template #title>
-        <span class="text-lg">Farms Requiring Attention</span>
-      </template>
-      <template #content>
-        <DataTable
-            :value="[...farmsStore.criticalFarms, ...farmsStore.watchFarms].slice(0, 5)"
-            :rows="5"
-            class="text-sm"
-        >
-          <Column field="name"      header="Farm Name" />
-          <Column field="crop_type" header="Crop" />
-          <Column field="area_ha"   header="Area (ha)">
-            <template #body="{ data }">
-              {{ data.area_ha?.toFixed(1) ?? '—' }}
-            </template>
-          </Column>
-          <Column header="Health Status">
-            <template #body="{ data }">
-              <Tag
-                  :value="`${data.current_health?.score ?? 0}/100`"
-                  :severity="
-                  data.current_health?.status === 'critical' ? 'danger'  :
-                  data.current_health?.status === 'watch'    ? 'warning' : 'success'
-                "
-              />
-            </template>
-          </Column>
-          <Column header="Moisture">
-            <template #body="{ data }">
-              <Tag
-                  :value="data.current_moisture?.status ?? 'N/A'"
-                  :severity="
-                  data.current_moisture?.status === 'dry'      ? 'danger'  :
-                  data.current_moisture?.status === 'low'      ? 'warning' :
-                  data.current_moisture?.status === 'adequate' ? 'success' : 'info'
-                "
-              />
-            </template>
-          </Column>
-          <Column header="Action">
-            <template #body="{ data }">
-              <Button label="View" text size="small" @click="viewFarmDetail(data.id)" />
-            </template>
-          </Column>
-        </DataTable>
-      </template>
-    </Card>
-
   </div>
 </template>
